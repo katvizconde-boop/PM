@@ -4,11 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev":            "vercel dev",
     "build":          "cd frontend && npm install && npm run build",
-    "migrate":        "node-pg-migrate -m migrations -j sql",
-    "migrate:up":     "node-pg-migrate -m migrations -j sql up",
-    "migrate:down":   "node-pg-migrate -m migrations -j sql down",
+    "migrate:up":     "node scripts/migrate.mjs up",
+    "migrate:down":   "node scripts/migrate.mjs down",
     "migrate:create": "node-pg-migrate -m migrations -j sql create",
     "test:e2e":       "node test/auth.e2e.mjs"
   },
@@ -20,6 +18,6 @@
   },
   "devDependencies": {
     "node-pg-migrate": "^7.6.1",
-    "pg": "^8.13.0"
+    "ws": "^8.18.0"
   }
 }
