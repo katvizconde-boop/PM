@@ -1,11 +1,10 @@
-import { Router } from 'express';
-import { query } from '../db.js';
+import { query } from '../../lib/db.js';
+import { requireAuth } from '../../lib/auth.js';
+import { methodHandler } from '../../lib/handler.js';
 
-const router = Router();
-
-// Single round-trip for the dashboard: counts + per-status buckets + overdue.
-router.get('/summary', async (req, res, next) => {
-  try {
+export default methodHandler({
+  GET: async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const [projects, tasksByStatus, overdue, byPriority] = await Promise.all([
       query(`SELECT COUNT(*)::int AS total,
                     SUM((status='in_progress')::int)::int AS in_progress,
@@ -29,16 +28,5 @@ router.get('/summary', async (req, res, next) => {
       overdue: overdue.rows[0].overdue,
       by_priority: byPriority.rows,
     });
-  } catch (err) { next(err); }
+  },
 });
-
-router.get('/users', async (req, res, next) => {
-  try {
-    const { rows } = await query(
-      `SELECT id, name, email, role FROM users WHERE is_active = TRUE ORDER BY name`
-    );
-    res.json(rows);
-  } catch (err) { next(err); }
-});
-
-export default router;

@@ -1,111 +1,58 @@
 # PM — Lightweight Project Management
 
-Internal project/task tracker. React + Tailwind on the front, Node/Express + Postgres on the back, JWT auth, Docker-ready.
+Internal project/task tracker. React SPA + Vercel serverless functions, JWT auth, Neon (Postgres). Deploys with `git push`.
 
 ## File structure
 
 ```
 .
-├── docker-compose.yml
-├── .env.example
-├── backend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── migrations/            # node-pg-migrate (SQL files)
-│   │   └── 1714867200000_initial-schema.sql
-│   ├── test/
-│   │   └── auth.e2e.mjs       # smoke test: register/login/protected
+├── api/                       # Vercel serverless functions (one per route)
+│   ├── auth/{login,register,me}.js
+│   ├── projects/{index,[id]}.js
+│   ├── tasks/{index,[id]}.js
+│   ├── comments/
+│   │   ├── task/[taskId].js
+│   │   └── [id].js
+│   ├── activity/index.js
+│   ├── dashboard/{summary,users}.js
+│   └── health.js
+├── lib/                       # Shared helpers used by api/ functions
+│   ├── db.js                  # @neondatabase/serverless wrapper
+│   ├── auth.js                # JWT verify + role gates
+│   ├── activity.js            # audit log helper
+│   └── handler.js             # method dispatch + error mapping
+├── frontend/                  # React + Tailwind SPA (Vite)
+│   ├── index.html
+│   ├── vite.config.js
 │   └── src/
-│       ├── index.js           # Express entry + error handler
-│       ├── db.js              # pg pool
-│       ├── middleware/auth.js # JWT + requireRole()
-│       ├── utils/activity.js  # audit log helper
-│       └── routes/            # auth, projects, tasks, comments, activity, dashboard
-└── frontend/
-    ├── Dockerfile
-    ├── nginx.conf             # serves SPA + proxies /api -> backend
-    ├── package.json
-    ├── vite.config.js
-    ├── tailwind.config.js
-    ├── index.html
-    └── src/
-        ├── main.jsx
-        ├── App.jsx            # routes
-        ├── index.css          # tailwind layers
-        ├── api/client.js      # fetch wrapper, JWT in localStorage
-        ├── contexts/AuthContext.jsx
-        ├── components/        # Layout, ProtectedRoute
-        └── pages/             # Login, Register, Dashboard, Projects, ProjectDetail, MyTasks
+├── migrations/                # node-pg-migrate (SQL files)
+├── test/auth.e2e.mjs          # 20-assertion smoke test
+├── package.json               # API deps + migration tooling
+├── vercel.json                # build + SPA fallback rewrites
+└── DEPLOY.md
 ```
 
-## Quick start (Docker)
+## Quick start
 
 ```bash
-cp .env.example .env          # generate a real JWT_SECRET
-docker compose up --build
-```
-
-- App:     http://localhost:8080
-- API:     http://localhost:4000
-- DB:      localhost:5432  (user/pass: pm/pm)
-
-The first user you register becomes `admin`. Subsequent registrations default to `member`; an admin can promote them.
-
-## Local dev (without Docker)
-
-```bash
-# 1. Postgres
-docker run -d --name pm-db -p 5432:5432 \
-  -e POSTGRES_USER=pm -e POSTGRES_PASSWORD=pm -e POSTGRES_DB=pm postgres:16-alpine
-
-# 2. Backend — migrations run via node-pg-migrate
-cd backend
+# Prereqs: Node 20+, a Neon project (free tier is fine)
 npm install
-export DATABASE_URL=postgres://pm:pm@localhost:5432/pm
-export JWT_SECRET=dev-secret
-npm run migrate:up   # apply all migrations
-npm run dev          # API on :4000
 
-# 3. Frontend
-cd ../frontend
-npm install
-npm run dev          # http://localhost:5173, proxies /api to :4000
+# Apply schema to your Neon DB
+DATABASE_URL="postgres://..." npm run migrate:up
+
+# Run locally — Vercel CLI serves SPA + functions on one port
+echo 'DATABASE_URL=postgres://...
+JWT_SECRET=dev-secret' > .env.local
+npx vercel dev
+
+# Smoke test
+API_URL=http://localhost:3000 npm run test:e2e
 ```
 
-## Migrations
+Open http://localhost:3000. Register the first user — auto-promoted to admin.
 
-Schema changes live in `backend/migrations/` as timestamped SQL files. Each file has `-- Up Migration` and `-- Down Migration` sections.
-
-```bash
-cd backend
-npm run migrate:create -- add-attachments  # generates a stub
-npm run migrate:up                         # apply pending
-npm run migrate:down                       # roll back the last one
-```
-
-The Docker `backend` image runs `migrate:up` automatically on container start, so `docker compose up` is enough.
-
-## End-to-end auth test
-
-Two ways to run the suite:
-
-```bash
-# Option A — fully self-contained (no Docker, no Postgres install required).
-# Spins up an embedded Postgres on a random port, runs migrations, starts the API,
-# runs the suite, tears down. Good for CI.
-cd backend
-npm install --no-save embedded-postgres
-npm run test:e2e:local
-
-# Option B — against an already-running stack.
-docker compose up -d --build
-cd backend
-API_URL=http://localhost:4000 npm run test:e2e
-```
-
-Covers: health check, register (incl. duplicate + validation), login (incl. wrong password), protected route gating with/without/with-bogus token, dashboard summary. Exits non-zero on failure — wire either form into CI as-is.
-
-Last run (Option A, Node 24 / PG 18 on Windows): **10/10 passed, exit 0.**
+For production deploy, see [DEPLOY.md](DEPLOY.md).
 
 ## Roles
 
@@ -115,9 +62,12 @@ Last run (Option A, Node 24 / PG 18 on Windows): **10/10 passed, exit 0.**
 | manager  | ✓ | ✓ | ✓ |   | ✓ | ✓ |
 | member   | ✓ |   |   |   | ✓ | ✓ |
 
-## Scaling notes
+## Migrations
 
-- API is stateless — scale horizontally behind a load balancer.
-- Postgres handles internal-team load easily; promote to managed Postgres (RDS/Neon/Supabase) for prod.
-- For real-time updates, add a WebSocket layer or poll `/api/activity` — deferred for v2.
-- Nice-to-haves intentionally skipped in MVP: file attachments (S3 + signed URLs), notifications (worker + SMTP), Kanban (group `tasks` by `status` column), calendar (group by `due_date`).
+```bash
+DATABASE_URL=...  npm run migrate:create -- add-attachments
+DATABASE_URL=...  npm run migrate:up
+DATABASE_URL=...  npm run migrate:down
+```
+
+There's no "container start" hook in serverless — run migrations manually from your CLI against each environment's `DATABASE_URL`. Use Neon branches to test schema changes safely before running them on prod.

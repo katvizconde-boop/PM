@@ -1,161 +1,108 @@
 # Deployment
 
-Three services to host: **backend** (Node API), **frontend** (Nginx serving the built SPA), **database** (Postgres). The compose stack works as-is on any single VM; for managed hosting, the recipe below covers Fly.io. Render is sketched at the bottom.
+Two services: **Vercel** (SPA + serverless functions for the API) and **Neon** (Postgres). Vercel deploys from a git push; Neon is provisioned once via the dashboard or CLI.
+
+**Cost reality:** Vercel's Hobby plan is non-commercial use only — for an internal company tool, the Pro plan ($20/mo per developer with deploy access) is technically required. Neon free tier covers low-traffic internal tools (256MB storage, autoscale, branching). All in: **~$20/mo flat.**
 
 ---
 
-## Fly.io — first deploy (one-time setup)
+## First-time setup
 
-**Cost (rough):** 2× shared-cpu-1x VMs (256MB) + `fly postgres` shared-cpu-1x ≈ **$5–15/mo** with autoscale-to-zero on idle. Free Postgres tier exists but isn't backed up — don't use it for anything you care about.
-
-### 0. Prereqs
+### 1. Create the Neon database
 
 ```bash
-# Install flyctl. On Windows: winget install Fly-io.flyctl
-brew install flyctl                      # macOS
-curl -L https://fly.io/install.sh | sh   # Linux
-fly auth login                           # opens browser
+# Web flow (easier): https://neon.tech → new project → copy "Pooled connection" string
+# CLI flow:
+npx neonctl auth
+npx neonctl projects create --name pm
+npx neonctl connection-string --project-id <id> --pooled
 ```
 
-You'll need a Fly account with a payment method on file. The free tier covers very small workloads but won't host all three services without one.
+You want the **pooled** connection string — Vercel functions are serverless, and Neon's pooler holds connections across cold starts. Save it; we'll set it as `DATABASE_URL` on Vercel.
 
-### 1. Postgres
+### 2. Apply migrations
+
+`node-pg-migrate` runs from your local CLI against the production DB. There's no "container start" hook in serverless — you run migrations manually before each deploy that needs them.
 
 ```bash
-fly postgres create \
-  --name pm-db \
-  --region iad \
-  --vm-size shared-cpu-1x \
-  --volume-size 1 \
-  --initial-cluster-size 1
+npm install
+DATABASE_URL="<pooled connection string>" npm run migrate:up
 ```
 
-Save the connection string it prints — you don't need to use it directly because `fly postgres attach` (step 2) wires it into the backend automatically.
-
-### 2. Backend
-
-From the repo root:
+### 3. Deploy to Vercel
 
 ```bash
-cd backend
-fly launch --copy-config --no-deploy --name pm-api
-fly postgres attach pm-db --app pm-api               # sets DATABASE_URL secret
-fly secrets set JWT_SECRET="$(openssl rand -hex 32)" --app pm-api
-fly secrets set CORS_ORIGIN="https://pm-web.fly.dev" --app pm-api
-fly deploy
+npm install -g vercel             # or: npx vercel
+vercel login                       # opens browser
+vercel link                        # links the cwd to a Vercel project
+vercel env add DATABASE_URL        # paste pooled connection string, all envs
+vercel env add JWT_SECRET          # paste output of: openssl rand -hex 32
+vercel --prod                      # ships
 ```
 
-The Dockerfile's `CMD` runs `npm run migrate:up && node src/index.js`, so migrations apply automatically on every deploy.
+That's it. Vercel discovers `api/*.js` files automatically and turns each into a serverless function. The SPA is built per `vercel.json`'s `buildCommand`.
 
-Verify it's up:
+### 4. Smoke-test prod
 
 ```bash
-curl https://pm-api.fly.dev/health
-# {"ok":true}
-
-cd ../backend
-API_URL=https://pm-api.fly.dev npm run test:e2e   # runs the suite against prod
+API_URL=https://<your-app>.vercel.app npm run test:e2e
+# expect: 20/20 passed
 ```
-
-### 3. Frontend
-
-```bash
-cd ../frontend
-fly launch --copy-config --no-deploy --name pm-web
-fly deploy
-```
-
-`frontend/fly.toml` already sets `API_HOST=pm-api.internal`, which routes via Fly's private 6PN network — the SPA still talks to `/api` on its own origin, so no CORS round trip.
-
-Open https://pm-web.fly.dev. Register the first user (auto-promoted to admin).
-
-### 4. Tighten CORS
-
-Once the frontend is up, set `CORS_ORIGIN` to its real origin:
-
-```bash
-fly secrets set CORS_ORIGIN="https://pm-web.fly.dev" --app pm-api
-# (You already did this in step 2 if pm-web was the planned name — re-set if it differs.)
-```
-
-The backend refuses to boot in production without a non-`*` `CORS_ORIGIN` — by design.
 
 ---
 
-## CI/CD (GitHub Actions)
+## Local development
 
-`.github/workflows/deploy.yml` runs the E2E suite against a real Postgres, then deploys both apps to Fly on every push to `main`. To enable:
+Run the whole stack locally with Vercel CLI — same routing as prod:
 
 ```bash
-fly tokens create deploy -x 999999h           # long-lived deploy token
-gh secret set FLY_API_TOKEN --body "<paste token>"
+vercel dev                         # starts on :3000
+# In another shell:
+API_URL=http://localhost:3000 npm run test:e2e
 ```
 
-(or paste it manually under Settings → Secrets and variables → Actions.)
+`vercel dev` reads env from `.env.local` (or pulls from Vercel via `vercel env pull`). At minimum:
 
-The workflow deploys backend and frontend in parallel — they're independent.
+```
+DATABASE_URL=postgres://...   # your Neon dev branch
+JWT_SECRET=dev-secret
+```
+
+Tip: create a Neon **branch** for dev so you don't pollute prod data:
+
+```bash
+npx neonctl branches create --project-id <id> --name dev
+npx neonctl connection-string --project-id <id> --branch dev --pooled
+```
+
+---
+
+## CI/CD
+
+Vercel's git integration auto-deploys on push:
+
+- Push to `main` → production deploy
+- Open PR → preview deploy at `https://pm-git-<branch>-<team>.vercel.app`
+
+Connect your GitHub repo via Vercel dashboard → Project → Settings → Git. No GitHub Action needed.
+
+If you want pre-deploy E2E gating, add `.github/workflows/test.yml` that runs `npm run test:e2e` against the latest preview URL.
 
 ---
 
 ## Production checklist
 
-- [ ] `JWT_SECRET` is a 32-byte random value, set as a Fly secret.
-- [ ] `CORS_ORIGIN` is the exact frontend origin, not `*`.
-- [ ] `NODE_ENV=production` (set by `backend/fly.toml`; the API throws on boot otherwise).
-- [ ] Postgres backups: `fly postgres backup list --app pm-db` shows daily snapshots.
-- [ ] First registered user is the admin you want — sign up immediately and don't share the URL until you have.
-- [ ] Run `API_URL=https://pm-api.fly.dev npm run test:e2e` against the deployed backend; expect `20/20 passed`.
+- [ ] `DATABASE_URL` is the **pooled** Neon connection string, not direct.
+- [ ] `JWT_SECRET` is 32+ bytes of randomness, set as a Vercel env var.
+- [ ] Migrations applied — verify with `npx neonctl sql --project-id <id> "SELECT count(*) FROM users"` (returns 0 on a fresh DB, no error means schema exists).
+- [ ] First registered user is the admin you want.
+- [ ] `npm run test:e2e` against prod URL returns `20/20 passed`.
+- [ ] Neon point-in-time recovery is on (paid Neon plans only — free tier has 7 days of branch-based recovery).
 
----
+## What's intentionally NOT done
 
-## Render (alternative)
-
-If you'd rather use Render, the equivalent `render.yaml` is:
-
-```yaml
-databases:
-  - name: pm-db
-    plan: starter
-    postgresMajorVersion: 16
-
-services:
-  - type: web
-    name: pm-api
-    runtime: docker
-    dockerContext: ./backend
-    dockerfilePath: ./backend/Dockerfile
-    healthCheckPath: /health
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        fromDatabase: { name: pm-db, property: connectionString }
-      - key: JWT_SECRET
-        generateValue: true
-      - key: CORS_ORIGIN
-        value: https://pm-web.onrender.com
-
-  - type: web
-    name: pm-web
-    runtime: docker
-    dockerContext: ./frontend
-    dockerfilePath: ./frontend/Dockerfile
-    envVars:
-      - key: API_HOST
-        fromService: { type: web, name: pm-api, property: host }
-      - key: API_PORT
-        value: "443"
-```
-
-`git push` triggers a deploy. Render runs migrations on each deploy via the Dockerfile.
-
-**Cost:** Starter plan $7/service × 2 + $7 Postgres = **~$21/mo**. Simpler tooling, no idle scale-to-zero, no internal networking surprises.
-
----
-
-## What's intentionally NOT included
-
-- **CDN / caching headers** — for an internal tool, traffic doesn't justify it.
-- **Sentry / structured logging** — defer until you have a real incident; `fly logs` works.
-- **Rate limiting** — add `express-rate-limit` to `/api/auth/*` if you ever expose this past your VPN.
-- **Multi-region Postgres** — single region is fine. Revisit only if latency is a real complaint.
+- **No Express/Docker/Fly leftovers.** Removed in the Vercel migration (commit pre-vercel: `5bc4b87`).
+- **No connection pool in app code** — Neon's pooler handles it. `pg.Pool` is the wrong shape for serverless.
+- **No graceful shutdown / SIGTERM handling** — serverless functions are killed without notice. There's nothing to drain.
+- **No rate limiting** — add `@upstash/ratelimit` (Vercel-native) on `/api/auth/*` once exposed past your VPN.
+- **No structured logging** — Vercel's built-in log explorer is enough until an incident proves otherwise.

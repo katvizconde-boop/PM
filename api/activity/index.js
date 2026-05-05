@@ -1,12 +1,10 @@
-import { Router } from 'express';
-import { query } from '../db.js';
+import { query } from '../../lib/db.js';
+import { requireAuth } from '../../lib/auth.js';
+import { methodHandler } from '../../lib/handler.js';
 
-const router = Router();
-
-// GET /api/activity?entity_type=task&entity_id=42  -> entity-scoped feed
-// GET /api/activity                                -> recent global feed
-router.get('/', async (req, res, next) => {
-  try {
+export default methodHandler({
+  GET: async (req, res) => {
+    if (!requireAuth(req, res)) return;
     const { entity_type, entity_id } = req.query;
     const filters = [];
     const values = [];
@@ -21,7 +19,5 @@ router.get('/', async (req, res, next) => {
       values
     );
     res.json(rows);
-  } catch (err) { next(err); }
+  },
 });
-
-export default router;

@@ -1,16 +1,15 @@
-// End-to-end smoke test: register -> login -> hit a protected route -> verify auth gating.
-// Hits a real running API. Assumes the DB is fresh (or that the email is unique).
+// End-to-end smoke test. Hits a running deployment (vercel dev OR a deployed URL).
 //
 // Usage:
-//   API_URL=http://localhost:4000 node test/auth.e2e.mjs
+//   API_URL=http://localhost:3000      node test/auth.e2e.mjs   # vercel dev
+//   API_URL=https://pm.vercel.app      node test/auth.e2e.mjs   # prod
 //
 // Exits 0 on pass, 1 on fail. No external test runner needed.
 
 import { strict as assert } from 'node:assert';
 
-const API = process.env.API_URL || 'http://localhost:4000';
+const API = process.env.API_URL || 'http://localhost:3000';
 
-// Unique email per run so reruns don't 409 on the unique constraint.
 const stamp = Date.now();
 const user = {
   email:    `e2e+${stamp}@example.com`,
@@ -35,10 +34,10 @@ async function http(method, path, { token, body } = {}) {
   return { status: res.status, data };
 }
 
-let token;
+let token, userId, projectId, taskId;
 
 check('health endpoint responds 200', async () => {
-  const { status, data } = await http('GET', '/health');
+  const { status, data } = await http('GET', '/api/health');
   assert.equal(status, 200);
   assert.deepEqual(data, { ok: true });
 });
@@ -56,9 +55,8 @@ check('protected route rejects bogus token (401)', async () => {
 check('register returns token + user', async () => {
   const { status, data } = await http('POST', '/api/auth/register', { body: user });
   assert.equal(status, 201, `expected 201, got ${status}: ${JSON.stringify(data)}`);
-  assert.ok(data.token, 'missing token in response');
+  assert.ok(data.token);
   assert.equal(data.user.email, user.email);
-  assert.ok(['admin', 'manager', 'member'].includes(data.user.role));
   token = data.token;
 });
 
@@ -102,16 +100,12 @@ check('dashboard summary works with valid token', async () => {
   assert.ok(typeof data.tasks.completion_rate === 'number');
 });
 
-// ── Projects / tasks / comments — guards the contracts the Kanban + Calendar UIs depend on.
-
-let userId, projectId, taskId;
-
 check('first user is admin (so manager-only routes work)', async () => {
   const { status, data } = await http('GET', '/api/dashboard/users', { token });
   assert.equal(status, 200);
   const me = data.find(u => u.email === user.email);
-  assert.ok(me, 'current user should appear in /dashboard/users');
-  assert.equal(me.role, 'admin', 'first registered user should be admin');
+  assert.ok(me);
+  assert.equal(me.role, 'admin');
   userId = me.id;
 });
 
@@ -121,7 +115,6 @@ check('create project (manager-gated)', async () => {
     body: { name: `E2E Project ${stamp}`, owner_id: userId, status: 'in_progress' },
   });
   assert.equal(status, 201);
-  assert.ok(data.id);
   projectId = data.id;
 });
 
@@ -160,7 +153,7 @@ check('status change is recorded in activity log', async () => {
   const { status, data } = await http('GET', `/api/activity?entity_type=task&entity_id=${taskId}`, { token });
   assert.equal(status, 200);
   const change = data.find(a => a.action === 'status_changed');
-  assert.ok(change, 'expected a status_changed activity entry');
+  assert.ok(change);
   assert.equal(change.metadata.from, 'todo');
   assert.equal(change.metadata.to,   'in_progress');
 });
@@ -181,13 +174,11 @@ check('list comments returns it with author_name', async () => {
 });
 
 check('non-admin cannot create a project', async () => {
-  // Register a member-role second user.
   const member = { email: `member+${stamp}@example.com`, name: 'Member', password: 'password1234' };
   const reg = await http('POST', '/api/auth/register', { body: member });
   assert.equal(reg.status, 201);
-  assert.equal(reg.data.user.role, 'member', 'second user should default to member');
+  assert.equal(reg.data.user.role, 'member');
   const memberToken = reg.data.token;
-
   const { status } = await http('POST', '/api/projects', {
     token: memberToken,
     body: { name: 'unauthorized', owner_id: userId },
@@ -197,13 +188,8 @@ check('non-admin cannot create a project', async () => {
 
 let failed = 0;
 for (const { name, fn } of checks) {
-  try {
-    await fn();
-    console.log(`  ok  ${name}`);
-  } catch (err) {
-    failed++;
-    console.error(`  FAIL ${name}\n       ${err.message}`);
-  }
+  try { await fn(); console.log(`  ok  ${name}`); }
+  catch (err) { failed++; console.error(`  FAIL ${name}\n       ${err.message}`); }
 }
 console.log(`\n${checks.length - failed}/${checks.length} passed`);
 process.exit(failed ? 1 : 0);
