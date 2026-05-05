@@ -1,0 +1,30 @@
+# Fly.io deployment for the SPA. See DEPLOY.md.
+# Run `fly launch --copy-config --no-deploy --name pm-web` from this directory.
+
+app = "pm-web"
+primary_region = "iad"
+
+[build]
+
+[env]
+  # Resolves over Fly's private 6PN to the backend app set up at pm-api.
+  API_HOST = "pm-api.internal"
+  API_PORT = "4000"
+
+[http_service]
+  internal_port = 80
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.checks]
+    grace_period = "5s"
+    interval = "15s"
+    method = "GET"
+    timeout = "2s"
+    path = "/"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

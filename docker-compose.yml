@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pm
+      POSTGRES_PASSWORD: pm
+      POSTGRES_DB: pm
+    ports: ["5432:5432"]
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgres://pm:pm@db:5432/pm
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me}
+      # In prod set CORS_ORIGIN to your real frontend origin(s), comma-separated.
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      PORT: 4000
+    depends_on:
+      db:
+        condition: service_healthy
+    ports: ["4000:4000"]
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_HOST: backend
+      API_PORT: "4000"
+    depends_on: [backend]
+    ports: ["8080:80"]
+
+volumes:
+  dbdata:
