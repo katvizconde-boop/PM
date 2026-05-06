@@ -67,9 +67,10 @@ function InnerSidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-        <NavLink to="/"         end className={linkCls}><HomeIcon     className="w-4 h-4" /> Home</NavLink>
-        <NavLink to="/tasks"        className={linkCls}><ListIcon     className="w-4 h-4" /> My Tasks</NavLink>
-        <NavLink to="/calendar"     className={linkCls}><CalendarIcon className="w-4 h-4" /> Calendar</NavLink>
+        <NavLink to="/"          end className={linkCls}><HomeIcon     className="w-4 h-4" /> Home</NavLink>
+        <NavLink to="/tasks"         className={linkCls}><ListIcon     className="w-4 h-4" /> My Tasks</NavLink>
+        <NavLink to="/all-tasks"     className={linkCls}><ListIcon     className="w-4 h-4" /> All Tasks</NavLink>
+        <NavLink to="/calendar"      className={linkCls}><CalendarIcon className="w-4 h-4" /> Calendar</NavLink>
 
         <div className="pt-3 pb-1 px-2 flex items-center justify-between">
           <button

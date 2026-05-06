@@ -24,7 +24,8 @@ export default methodHandler({
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const { rows } = await query(
-      `SELECT t.*, u.name AS assignee_name, p.name AS project_name
+      `SELECT t.*, u.name AS assignee_name, p.name AS project_name,
+              (SELECT COUNT(*)::int FROM comments c WHERE c.task_id = t.id) AS comments_count
        FROM tasks t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN projects p ON p.id = t.project_id

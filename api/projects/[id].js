@@ -10,6 +10,7 @@ const patchSchema = z.object({
   owner_id: z.number().int().positive(),
   status: z.enum(['not_started', 'in_progress', 'done']),
   deadline: z.string().date().nullable(),
+  notes: z.string().max(50000).nullable(),
 }).partial();
 
 export default methodHandler({
@@ -25,11 +26,17 @@ export default methodHandler({
   },
 
   PATCH: async (req, res) => {
-    const user = requireRole(req, res, 'admin', 'manager');
+    const user = requireAuth(req, res);
     if (!user) return;
     const data = patchSchema.parse(req.body);
     const fields = Object.keys(data);
     if (!fields.length) { res.status(400).json({ error: 'no fields' }); return; }
+    // Notes are open to anyone authenticated (analysts handoff/log work).
+    // Everything else still needs admin/manager.
+    const isOnlyNotesEdit = fields.length === 1 && fields[0] === 'notes';
+    if (!isOnlyNotesEdit && !['admin', 'manager'].includes(user.role)) {
+      res.status(403).json({ error: 'forbidden' }); return;
+    }
     const set = fields.map((k, i) => `${k} = $${i + 1}`).join(', ');
     const values = fields.map(k => data[k]);
     values.push(req.query.id);

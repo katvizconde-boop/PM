@@ -9,6 +9,7 @@ import Projects from './pages/Projects.jsx';
 import ProjectDetail from './pages/ProjectDetail.jsx';
 import MyTasks from './pages/MyTasks.jsx';
 import Calendar from './pages/Calendar.jsx';
+import AllTasks from './pages/AllTasks.jsx';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="projects/:id" element={<ProjectDetail />} />
             <Route path="tasks" element={<MyTasks />} />
             <Route path="calendar" element={<Calendar />} />
+            <Route path="all-tasks" element={<AllTasks />} />
           </Route>
         </Routes>
       </BrowserRouter>
