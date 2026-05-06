@@ -8,6 +8,7 @@
     "migrate:up":     "node scripts/migrate.mjs up",
     "migrate:down":   "node scripts/migrate.mjs down",
     "migrate:create": "node-pg-migrate -m migrations -j sql create",
+    "seed:demo":      "node scripts/seed-demo.mjs",
     "test:e2e":       "node test/auth.e2e.mjs"
   },
   "dependencies": {
