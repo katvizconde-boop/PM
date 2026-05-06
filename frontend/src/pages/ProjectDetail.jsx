@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import KanbanBoard from '../components/KanbanBoard.jsx';
 import ChecklistPanel from '../components/ChecklistPanel.jsx';
+import TimerButton from '../components/TimerButton.jsx';
 
 const STATUSES = [
   { value: 'todo',        label: 'To do'      },
@@ -18,7 +19,7 @@ const PRIORITY_BADGE = {
   urgent: 'bg-red-100 text-red-700',
 };
 
-function TaskRow({ task, users, onChange }) {
+function TaskRow({ task, users, entries, runningEntry, onChange }) {
   const update = async (patch) => {
     await api(`/tasks/${task.id}`, { method: 'PATCH', body: patch });
     onChange();
@@ -29,6 +30,14 @@ function TaskRow({ task, users, onChange }) {
       <td className="p-2">
         <div className="font-medium">{task.title}</div>
         {task.description && <div className="text-xs text-slate-500">{task.description}</div>}
+        <div className="mt-1">
+          <TimerButton
+            taskId={task.id}
+            entries={entries}
+            runningEntry={runningEntry}
+            onChange={onChange}
+          />
+        </div>
       </td>
       <td className="p-2">
         <select className="input py-1" value={task.assignee_id ?? ''}
@@ -129,15 +138,25 @@ export default function ProjectDetail() {
   const [activity, setActivity] = useState([]);
   const [openTaskId, setOpenTaskId] = useState(null);
   const [view, setView] = useState('list');
+  // timeByTask: { [taskId]: entries[] }; runningEntry: this user's currently-running entry
+  const [timeByTask, setTimeByTask] = useState({});
+  const [runningEntry, setRunningEntry] = useState(null);
 
   const load = async () => {
-    const [p, t, u, a] = await Promise.all([
+    const [p, t, u, a, running] = await Promise.all([
       api(`/projects/${id}`),
       api(`/tasks?project_id=${id}`),
       api('/dashboard/users'),
       api(`/activity?entity_type=project&entity_id=${id}`),
+      api('/time?running=1'),
     ]);
-    setProject(p); setTasks(t); setUsers(u); setActivity(a);
+    setProject(p); setTasks(t); setUsers(u); setActivity(a); setRunningEntry(running);
+
+    // Fetch entries per task in parallel and group by task_id.
+    const allEntries = await Promise.all(
+      t.map(task => api(`/time?task_id=${task.id}`).then(rows => [task.id, rows]))
+    );
+    setTimeByTask(Object.fromEntries(allEntries));
   };
   useEffect(() => { load(); }, [id]);
 
@@ -183,7 +202,10 @@ export default function ProjectDetail() {
           <tbody>
             {tasks.map(t => (
               <>
-                <TaskRow key={t.id} task={t} users={users} onChange={load} />
+                <TaskRow key={t.id} task={t} users={users}
+                         entries={timeByTask[t.id] ?? []}
+                         runningEntry={runningEntry}
+                         onChange={load} />
                 <tr key={`${t.id}-actions`}>
                   <td colSpan={5} className="p-2 pl-4 text-xs">
                     <button onClick={() => setOpenTaskId(openTaskId === t.id ? null : t.id)}

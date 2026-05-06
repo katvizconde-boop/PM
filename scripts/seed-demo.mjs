@@ -81,10 +81,10 @@ async function ensureChecklist(projectId, items) {
 
 async function ensureTasks(projectId, assigneeId, createdBy, tasks) {
   const { rows: existing } = await pool.query(
-    'SELECT COUNT(*)::int AS c FROM tasks WHERE project_id = $1', [projectId]
+    'SELECT id FROM tasks WHERE project_id = $1 ORDER BY id', [projectId]
   );
-  if (existing[0].c > 0) {
-    console.log(`  ~ tasks already populated (${existing[0].c} items)`);
+  if (existing.length > 0) {
+    console.log(`  ~ tasks already populated (${existing.length} items)`);
     return existing.map(r => r.id);
   }
   const ids = [];
@@ -110,6 +110,24 @@ async function ensureComment(taskId, authorId, body) {
     [taskId, authorId, body]
   );
   console.log(`  + sample comment added on task #${taskId}`);
+}
+
+async function ensureTimeEntries(taskId, userId, segments) {
+  // Idempotent at the task level: skip if any entry exists on this task.
+  // segments: array of [hoursAgo, durationMinutes].
+  const { rows: existing } = await pool.query(
+    'SELECT COUNT(*)::int AS c FROM time_entries WHERE task_id = $1', [taskId]
+  );
+  if (existing[0].c > 0) return;
+  for (const [hoursAgo, durationMinutes] of segments) {
+    await pool.query(
+      `INSERT INTO time_entries (task_id, user_id, started_at, ended_at)
+       VALUES ($1, $2, NOW() - ($3 || ' hours')::interval,
+                       NOW() - ($3 || ' hours')::interval + ($4 || ' minutes')::interval)`,
+      [taskId, userId, hoursAgo, durationMinutes]
+    );
+  }
+  console.log(`  + ${segments.length} time entries on task #${taskId}`);
 }
 
 async function main() {
@@ -141,6 +159,10 @@ async function main() {
   if (taskIds[1]) {
     await ensureComment(taskIds[1], ids.manager, 'Aim for the v1 layout by Thursday — keep it minimal.');
   }
+
+  // Sample time on the first two tasks so logging-in users see non-zero totals.
+  if (taskIds[0]) await ensureTimeEntries(taskIds[0], ids.member, [[26, 95], [4, 45]]);
+  if (taskIds[1]) await ensureTimeEntries(taskIds[1], ids.member, [[3, 120]]);
 
   console.log('\nDone. Login with:');
   console.log(`  csm@demo.com             / ${DEMO_PASSWORD}   (Client Success Manager)`);
