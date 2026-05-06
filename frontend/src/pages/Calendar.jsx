@@ -12,18 +12,18 @@ const STATUS_DOT = {
 };
 
 // Pure function: returns 42 cells (6 weeks * 7 days), Monday-first.
-function buildMonthGrid(year, month) {
+export function buildMonthGrid(year, month) {
   const first = new Date(year, month, 1);
   // JS getDay: 0 = Sun. Convert to Mon=0..Sun=6.
   const offset = (first.getDay() + 6) % 7;
   const cells = [];
   for (let i = 0; i < 42; i++) {
     const day = new Date(year, month, i - offset + 1);
-    cells.push({
-      date: day,
-      iso: day.toISOString().slice(0, 10),
-      inMonth: day.getMonth() === month,
-    });
+    // Build the iso string from LOCAL date components — toISOString() uses UTC
+    // and shifts the date in non-zero-offset timezones, which would mismatch
+    // the wall-clock date the user sees in the cell.
+    const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    cells.push({ date: day, iso, inMonth: day.getMonth() === month });
   }
   return cells;
 }

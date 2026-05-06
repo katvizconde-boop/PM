@@ -4,7 +4,7 @@ import { api, getToken, setToken, clearToken } from '../api/client.js';
 const AuthCtx = createContext(null);
 
 // Decode the JWT payload without a library — we only need claims for UI gating.
-function decode(token) {
+export function decodeJwt(token) {
   try {
     const [, payload] = token.split('.');
     return JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
@@ -14,7 +14,7 @@ function decode(token) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     const t = getToken();
-    return t ? decode(t) : null;
+    return t ? decodeJwt(t) : null;
   });
 
   // Auto-logout on token expiry.
@@ -28,11 +28,11 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const { token, user } = await api('/auth/login', { method: 'POST', body: { email, password } });
-    setToken(token); setUser(decode(token)); return user;
+    setToken(token); setUser(decodeJwt(token)); return user;
   };
   const register = async (payload) => {
     const { token, user } = await api('/auth/register', { method: 'POST', body: payload });
-    setToken(token); setUser(decode(token)); return user;
+    setToken(token); setUser(decodeJwt(token)); return user;
   };
   const logout = () => { clearToken(); setUser(null); };
 

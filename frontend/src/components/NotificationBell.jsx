@@ -18,6 +18,11 @@ function summary(a) {
   return `${a.actor_name} ${a.action.replace('_', ' ')} ${a.entity_type}`;
 }
 
+// Count items strictly newer than `lastSeenMs`. Pulled out for unit testing.
+export function countUnread(items, lastSeenMs) {
+  return items.filter(a => new Date(a.created_at).getTime() > lastSeenMs).length;
+}
+
 export default function NotificationBell() {
   const [items, setItems]   = useState([]);
   const [open, setOpen]     = useState(false);
@@ -46,7 +51,7 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
 
-  const unread = items.filter(a => new Date(a.created_at).getTime() > lastSeen).length;
+  const unread = countUnread(items, lastSeen);
 
   const togglePanel = () => {
     if (!open && items.length) {
