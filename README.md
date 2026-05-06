@@ -2,6 +2,8 @@
 
 Internal project/task tracker. React SPA + Vercel serverless functions, JWT auth, Neon (Postgres). Deploys with `git push`.
 
+**Live:** https://pm-hr-7gen.vercel.app · **Status:** [CI](https://github.com/katvizconde-boop/PM/actions) · 20 backend E2E + 11 frontend unit tests passing
+
 ## File structure
 
 ```
