@@ -159,7 +159,7 @@ check('status change is recorded in activity log', async () => {
 });
 
 check('add a comment on the task', async () => {
-  const { status, data } = await http('POST', `/api/comments/task/${taskId}`, {
+  const { status, data } = await http('POST', `/api/comments?task_id=${taskId}`, {
     token, body: { body: 'E2E comment' },
   });
   assert.equal(status, 201);
@@ -167,7 +167,7 @@ check('add a comment on the task', async () => {
 });
 
 check('list comments returns it with author_name', async () => {
-  const { status, data } = await http('GET', `/api/comments/task/${taskId}`, { token });
+  const { status, data } = await http('GET', `/api/comments?task_id=${taskId}`, { token });
   assert.equal(status, 200);
   assert.equal(data.length, 1);
   assert.equal(data[0].author_name, user.name);

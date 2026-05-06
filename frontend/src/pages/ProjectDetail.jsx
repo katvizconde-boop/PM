@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import KanbanBoard from '../components/KanbanBoard.jsx';
+import ChecklistPanel from '../components/ChecklistPanel.jsx';
 
 const STATUSES = [
   { value: 'todo',        label: 'To do'      },
@@ -92,13 +93,13 @@ function NewTaskForm({ projectId, users, onCreate }) {
 function Comments({ taskId }) {
   const [comments, setComments] = useState([]);
   const [body, setBody] = useState('');
-  const load = () => api(`/comments/task/${taskId}`).then(setComments);
+  const load = () => api(`/comments?task_id=${taskId}`).then(setComments);
   useEffect(() => { load(); }, [taskId]);
 
   const submit = async (e) => {
     e.preventDefault();
     if (!body.trim()) return;
-    await api(`/comments/task/${taskId}`, { method: 'POST', body: { body } });
+    await api(`/comments?task_id=${taskId}`, { method: 'POST', body: { body } });
     setBody(''); load();
   };
   return (
@@ -151,6 +152,8 @@ export default function ProjectDetail() {
           Owner: {project.owner_name} · Status: {project.status} {project.deadline && `· Due ${project.deadline.slice(0, 10)}`}
         </div>
       </div>
+
+      <ChecklistPanel projectId={id} />
 
       <NewTaskForm projectId={id} users={users} onCreate={load} />
 

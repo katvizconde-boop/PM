@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import NotificationBell from './NotificationBell.jsx';
+import { labelFor } from '../lib/roles.js';
 
 const link = ({ isActive }) =>
   `block px-3 py-2 rounded-md text-sm ${isActive ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-600 hover:bg-slate-100'}`;
@@ -22,7 +23,7 @@ export default function Layout() {
         </nav>
         <div className="text-xs text-slate-500 border-t pt-3">
           <div className="font-medium text-slate-700">{user?.name}</div>
-          <div>{user?.role}</div>
+          <div>{labelFor(user?.role)}</div>
           <button onClick={logout} className="mt-2 text-indigo-600 hover:underline">Sign out</button>
         </div>
       </aside>
