@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
+import { PlusIcon } from '../components/icons.jsx';
 
 const STATUS_LABEL = { not_started: 'Not started', in_progress: 'In progress', done: 'Done' };
 const STATUS_BADGE = {
@@ -10,7 +11,9 @@ const STATUS_BADGE = {
   done:        'bg-emerald-100 text-emerald-700',
 };
 
-function NewProjectForm({ users, onCreate }) {
+// Inline new-project form, expandable. Folds away when not in use to keep the
+// page header tight (à la ClickUp's "+ Project" affordance).
+function NewProjectForm({ users, onCreate, onCancel }) {
   const { user } = useAuth();
   const [form, setForm] = useState({ name: '', description: '', owner_id: user.id, deadline: '' });
   const [busy, setBusy] = useState(false);
@@ -23,7 +26,6 @@ function NewProjectForm({ users, onCreate }) {
         method: 'POST',
         body: { ...form, deadline: form.deadline || null, owner_id: Number(form.owner_id) },
       });
-      setForm({ name: '', description: '', owner_id: user.id, deadline: '' });
       onCreate();
     } finally { setBusy(false); }
   };
@@ -32,7 +34,7 @@ function NewProjectForm({ users, onCreate }) {
     <form onSubmit={submit} className="card p-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
       <div className="md:col-span-2">
         <label className="text-xs text-slate-500">Name</label>
-        <input className="input" required value={form.name}
+        <input className="input" required autoFocus value={form.name}
                onChange={e => setForm({ ...form, name: e.target.value })} />
       </div>
       <div>
@@ -47,7 +49,10 @@ function NewProjectForm({ users, onCreate }) {
         <input className="input" type="date" value={form.deadline}
                onChange={e => setForm({ ...form, deadline: e.target.value })} />
       </div>
-      <button className="btn-primary" disabled={busy}>Create project</button>
+      <div className="flex gap-2">
+        <button className="btn-primary flex-1" disabled={busy}>Create</button>
+        <button type="button" onClick={onCancel} className="btn-ghost">Cancel</button>
+      </div>
     </form>
   );
 }
@@ -57,6 +62,7 @@ export default function Projects() {
   const canCreate = ['admin', 'manager'].includes(user.role);
   const [projects, setProjects] = useState([]);
   const [users, setUsers]       = useState([]);
+  const [adding, setAdding]     = useState(false);
 
   const load = async () => {
     const [p, u] = await Promise.all([api('/projects'), api('/dashboard/users')]);
@@ -65,18 +71,36 @@ export default function Projects() {
   useEffect(() => { load(); }, []);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Projects</h1>
-      {canCreate && <NewProjectForm users={users} onCreate={load} />}
+    <div className="space-y-5 max-w-7xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Projects</h1>
+          <p className="text-xs text-slate-500 mt-0.5">{projects.length} project{projects.length === 1 ? '' : 's'}</p>
+        </div>
+        {canCreate && !adding && (
+          <button onClick={() => setAdding(true)} className="btn-primary inline-flex items-center gap-1.5">
+            <PlusIcon className="w-4 h-4" />
+            Project
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <NewProjectForm
+          users={users}
+          onCreate={() => { setAdding(false); load(); }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {projects.map(p => {
           const pct = p.task_count ? Math.round((p.done_count / p.task_count) * 100) : 0;
           return (
-            <Link key={p.id} to={`/projects/${p.id}`} className="card p-4 hover:shadow-md transition">
+            <Link key={p.id} to={`/projects/${p.id}`} className="card p-4 hover:shadow-md hover:border-indigo-200 transition">
               <div className="flex items-start justify-between gap-2">
-                <div className="font-semibold">{p.name}</div>
-                <span className={`badge ${STATUS_BADGE[p.status]}`}>{STATUS_LABEL[p.status]}</span>
+                <div className="font-semibold truncate">{p.name}</div>
+                <span className={`badge ${STATUS_BADGE[p.status]} shrink-0`}>{STATUS_LABEL[p.status]}</span>
               </div>
               <div className="text-xs text-slate-500 mt-1">Owner: {p.owner_name}</div>
               {p.deadline && <div className="text-xs text-slate-500">Due: {p.deadline.slice(0, 10)}</div>}
@@ -89,7 +113,16 @@ export default function Projects() {
             </Link>
           );
         })}
-        {!projects.length && <div className="text-slate-500">No projects yet.</div>}
+        {!projects.length && (
+          <div className="md:col-span-2 lg:col-span-3 card p-10 text-center">
+            <p className="text-slate-500">No projects yet.</p>
+            {canCreate && (
+              <button onClick={() => setAdding(true)} className="btn-primary mt-3 inline-flex items-center gap-1.5">
+                <PlusIcon className="w-4 h-4" /> Create your first project
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
