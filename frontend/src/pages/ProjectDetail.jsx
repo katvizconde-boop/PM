@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAuth } from '../contexts/AuthContext.jsx';
@@ -6,6 +6,7 @@ import KanbanBoard from '../components/KanbanBoard.jsx';
 import ChecklistPanel from '../components/ChecklistPanel.jsx';
 import NotesPanel from '../components/NotesPanel.jsx';
 import TimerButton from '../components/TimerButton.jsx';
+import TagInput from '../components/TagInput.jsx';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from '../components/icons.jsx';
 
 const STATUSES = [
@@ -26,20 +27,33 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cfg.badge}`}>{cfg.label}</span>;
 }
 
-function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments }) {
+function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, onAddSubtask, subtaskDraft, setSubtaskDraft }) {
   const update = async (patch) => {
     await api(`/tasks/${task.id}`, { method: 'PATCH', body: patch });
     onChange();
   };
   const overdue = task.due_date && task.status !== 'done' && new Date(task.due_date) < new Date();
+  const isAddingSub = subtaskDraft?.parentId === task.id;
   return (
     <>
       <tr className="border-t border-slate-100 hover:bg-slate-50">
-        <td className="px-3 py-2.5">
-          <div className="font-medium">{task.title}</div>
+        <td className="px-3 py-2.5" style={{ paddingLeft: `${0.75 + depth * 1.5}rem` }}>
+          <div className="font-medium flex items-center gap-1.5">
+            {depth > 0 && <span className="text-slate-300">↳</span>}
+            <span>{task.title}</span>
+          </div>
           {task.description && <div className="text-xs text-slate-500 mt-0.5">{task.description}</div>}
-          <div className="mt-1.5">
+          <div className="mt-1.5 flex items-center gap-3 flex-wrap">
             <TimerButton taskId={task.id} entries={entries} runningEntry={runningEntry} onChange={onChange} />
+            <TagInput taskId={task.id} tags={task.tags ?? []} onChange={onChange} />
+            {depth === 0 && (
+              <button
+                onClick={() => setSubtaskDraft(isAddingSub ? null : { parentId: task.id, status: task.status, title: '' })}
+                className="text-xs text-slate-400 hover:text-indigo-600"
+              >
+                + subtask
+              </button>
+            )}
           </div>
         </td>
         <td className="px-3 py-2.5">
@@ -141,9 +155,46 @@ function Comments({ taskId, onChange }) {
   );
 }
 
-function StatusGroup({ status, tasks, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments }) {
+function SubtaskCreateRow({ projectId, parent, draft, setDraft, onCreate }) {
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!draft.title.trim()) return;
+    await api('/tasks', {
+      method: 'POST',
+      body: {
+        project_id: Number(projectId),
+        title: draft.title,
+        status: parent.status,
+        priority: 'medium',
+        parent_task_id: parent.id,
+      },
+    });
+    setDraft(null);
+    onCreate();
+  };
+  return (
+    <tr className="border-t border-slate-100 bg-slate-50/50">
+      <td colSpan={6} className="px-3 py-2" style={{ paddingLeft: '2.25rem' }}>
+        <form onSubmit={submit} className="flex items-center gap-2 text-sm">
+          <span className="text-slate-300">↳</span>
+          <input
+            className="flex-1 border-0 focus:outline-none focus:ring-0 text-sm bg-transparent"
+            placeholder="New subtask…"
+            autoFocus
+            value={draft.title}
+            onChange={e => setDraft({ ...draft, title: e.target.value })}
+            onKeyDown={e => { if (e.key === 'Escape') setDraft(null); }}
+          />
+        </form>
+      </td>
+    </tr>
+  );
+}
+
+function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft }) {
   const [collapsed, setCollapsed] = useState(false);
-  const cfg = STATUSES.find(s => s.value === status);
+  const totalCount = parents.reduce((sum, p) => sum + 1 + (subtasksByParent[p.id]?.length ?? 0), 0);
+
   return (
     <div className="card overflow-hidden">
       <button
@@ -152,7 +203,7 @@ function StatusGroup({ status, tasks, users, entries, runningEntry, projectId, o
       >
         {collapsed ? <ChevronRightIcon className="w-4 h-4 text-slate-500" /> : <ChevronDownIcon className="w-4 h-4 text-slate-500" />}
         <StatusBadge status={status} />
-        <span className="text-xs text-slate-500">{tasks.length}</span>
+        <span className="text-xs text-slate-500">{totalCount}</span>
       </button>
       {!collapsed && (
         <table className="w-full text-sm">
@@ -167,18 +218,49 @@ function StatusGroup({ status, tasks, users, entries, runningEntry, projectId, o
             </tr>
           </thead>
           <tbody>
-            {tasks.map(t => (
-              <TaskRow
-                key={t.id}
-                task={t}
-                users={users}
-                entries={entries[t.id] ?? []}
-                runningEntry={runningEntry}
-                onChange={onChange}
-                openComments={openComments}
-                onOpenComments={onOpenComments}
-              />
-            ))}
+            {parents.map(t => {
+              const subs = subtasksByParent[t.id] ?? [];
+              return (
+                <Fragment key={t.id}>
+                  <TaskRow
+                    task={t}
+                    users={users}
+                    entries={entries[t.id] ?? []}
+                    runningEntry={runningEntry}
+                    onChange={onChange}
+                    openComments={openComments}
+                    onOpenComments={onOpenComments}
+                    depth={0}
+                    subtaskDraft={subtaskDraft}
+                    setSubtaskDraft={setSubtaskDraft}
+                  />
+                  {subtaskDraft?.parentId === t.id && (
+                    <SubtaskCreateRow
+                      projectId={projectId}
+                      parent={t}
+                      draft={subtaskDraft}
+                      setDraft={setSubtaskDraft}
+                      onCreate={onChange}
+                    />
+                  )}
+                  {subs.map(sub => (
+                    <TaskRow
+                      key={sub.id}
+                      task={sub}
+                      users={users}
+                      entries={entries[sub.id] ?? []}
+                      runningEntry={runningEntry}
+                      onChange={onChange}
+                      openComments={openComments}
+                      onOpenComments={onOpenComments}
+                      depth={1}
+                      subtaskDraft={subtaskDraft}
+                      setSubtaskDraft={setSubtaskDraft}
+                    />
+                  ))}
+                </Fragment>
+              );
+            })}
             <NewTaskInline projectId={projectId} status={status} users={users} onCreate={onChange} />
           </tbody>
         </table>
@@ -198,6 +280,8 @@ export default function ProjectDetail() {
   const [openComments, setOpenComments] = useState(null);
   const [timeByTask, setTimeByTask] = useState({});
   const [runningEntry, setRunningEntry] = useState(null);
+  // subtaskDraft: { parentId, status, title } when adding a subtask under a parent
+  const [subtaskDraft, setSubtaskDraft] = useState(null);
 
   const load = async () => {
     const [p, t, u, a, running] = await Promise.all([
@@ -217,8 +301,15 @@ export default function ProjectDetail() {
 
   if (!project) return <div className="text-slate-500">Loading…</div>;
 
+  // Split top-level (parents) from subtasks. Subtasks render under their parent
+  // regardless of parent's status — the status grouping uses the parent's status.
+  const subtasksByParent = tasks.reduce((acc, t) => {
+    if (t.parent_task_id) (acc[t.parent_task_id] ??= []).push(t);
+    return acc;
+  }, {});
+  const topLevel = tasks.filter(t => !t.parent_task_id);
   const tasksByStatus = STATUSES.reduce((acc, s) => {
-    acc[s.value] = tasks.filter(t => t.status === s.value);
+    acc[s.value] = topLevel.filter(t => t.status === s.value);
     return acc;
   }, {});
 
@@ -274,7 +365,8 @@ export default function ProjectDetail() {
             <StatusGroup
               key={s.value}
               status={s.value}
-              tasks={tasksByStatus[s.value]}
+              parents={tasksByStatus[s.value]}
+              subtasksByParent={subtasksByParent}
               users={users}
               entries={timeByTask}
               runningEntry={runningEntry}
@@ -282,6 +374,8 @@ export default function ProjectDetail() {
               onChange={load}
               openComments={openComments}
               onOpenComments={(taskId) => setOpenComments(openComments === taskId ? null : taskId)}
+              subtaskDraft={subtaskDraft}
+              setSubtaskDraft={setSubtaskDraft}
             />
           ))}
         </div>

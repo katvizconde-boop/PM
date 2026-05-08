@@ -12,6 +12,8 @@ const schema = z.object({
   status: z.enum(['todo', 'in_progress', 'done']).optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
   due_date: z.string().date().optional().nullable(),
+  parent_task_id: z.number().int().positive().optional().nullable(),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 
 export default methodHandler({
@@ -41,12 +43,14 @@ export default methodHandler({
     if (!user) return;
     const data = schema.parse(req.body);
     const { rows } = await query(
-      `INSERT INTO tasks (project_id, title, description, assignee_id, status, priority, due_date, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO tasks (project_id, title, description, assignee_id, status, priority,
+                          due_date, created_by, parent_task_id, tags)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
       [
         data.project_id, data.title, data.description ?? null, data.assignee_id ?? null,
         data.status ?? 'todo', data.priority ?? 'medium', data.due_date ?? null, user.id,
+        data.parent_task_id ?? null, data.tags ?? [],
       ]
     );
     logActivity({ actorId: user.id, entityType: 'task', entityId: rows[0].id, action: 'created' });

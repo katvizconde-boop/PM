@@ -11,6 +11,8 @@ const patchSchema = z.object({
   status: z.enum(['todo', 'in_progress', 'done']),
   priority: z.enum(['low', 'medium', 'high', 'urgent']),
   due_date: z.string().date().nullable(),
+  parent_task_id: z.number().int().positive().nullable(),
+  tags: z.array(z.string().min(1).max(40)).max(20),
 }).partial();
 
 export default methodHandler({

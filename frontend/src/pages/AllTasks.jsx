@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { ChevronDownIcon, ChevronRightIcon, FolderIcon } from '../components/icons.jsx';
+import { toCSV, downloadCSV } from '../lib/csv.js';
 
 const STATUSES = [
   { value: 'todo',        label: 'To do',       badge: 'bg-slate-100 text-slate-700' },
@@ -119,9 +120,31 @@ export default function AllTasks() {
 
   return (
     <div className="space-y-5 max-w-7xl">
-      <div>
-        <h1 className="text-2xl font-semibold">All Tasks</h1>
-        <p className="text-xs text-slate-500 mt-0.5">{tasks.length} task{tasks.length === 1 ? '' : 's'} across {projects.length} project{projects.length === 1 ? '' : 's'}</p>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">All Tasks</h1>
+          <p className="text-xs text-slate-500 mt-0.5">{tasks.length} task{tasks.length === 1 ? '' : 's'} across {projects.length} project{projects.length === 1 ? '' : 's'}</p>
+        </div>
+        <button
+          onClick={() => {
+            const csv = toCSV(tasks, [
+              { label: 'Project',    value: 'project_name' },
+              { label: 'Title',      value: 'title' },
+              { label: 'Status',     value: 'status' },
+              { label: 'Priority',   value: 'priority' },
+              { label: 'Assignee',   value: 'assignee_name' },
+              { label: 'Due date',   value: (t) => t.due_date?.slice(0, 10) ?? '' },
+              { label: 'Tags',       value: (t) => (t.tags ?? []).join('; ') },
+              { label: 'Comments',   value: 'comments_count' },
+              { label: 'Created',    value: (t) => t.created_at?.slice(0, 10) ?? '' },
+            ]);
+            downloadCSV(`tasks-${new Date().toISOString().slice(0, 10)}.csv`, csv);
+          }}
+          disabled={!tasks.length}
+          className="btn-ghost text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Export CSV
+        </button>
       </div>
 
       <div className="space-y-6">

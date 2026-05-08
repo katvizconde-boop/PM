@@ -4,10 +4,11 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { api } from '../api/client.js';
 import { labelFor } from '../lib/roles.js';
 import {
-  HomeIcon, FolderIcon, ListIcon, CalendarIcon, BellIcon, SearchIcon,
+  HomeIcon, FolderIcon, ListIcon, CalendarIcon,
   PlusIcon, ChevronDownIcon, ChevronRightIcon,
 } from './icons.jsx';
 import NotificationBell from './NotificationBell.jsx';
+import SearchBar from './SearchBar.jsx';
 
 // Outer dark icon strip — top-level destinations.
 function OuterRail() {
@@ -127,14 +128,7 @@ function TopBar() {
 
   return (
     <header className="h-12 bg-white border-b border-slate-200 flex items-center px-4 gap-3">
-      <div className="flex-1 max-w-md relative">
-        <SearchIcon className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-100 hover:bg-slate-50 focus:bg-white border border-transparent focus:border-indigo-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-100"
-          placeholder="Search…"
-          // search wiring is intentionally a no-op for now; renders so the layout matches
-        />
-      </div>
+      <SearchBar />
 
       <div className="ml-auto flex items-center gap-2">
         <button
