@@ -2,7 +2,7 @@
 
 Lightweight internal project/task tracker. React SPA + Vercel serverless functions, JWT auth, Neon (Postgres). Deploys with `git push`.
 
-**Live:** https://pm-hr-7gen.vercel.app · **CI:** [GitHub Actions](https://github.com/katvizconde-boop/PM/actions) · 20 backend E2E + 11 frontend unit tests · auto-deployed via Vercel git integration
+**Live:** https://taskpilot-hr-7gen.vercel.app · **CI:** [GitHub Actions](https://github.com/katvizconde-boop/PM/actions) · 20 backend E2E + 29 frontend unit tests · auto-deployed via Vercel git integration
 
 ## File structure
 
