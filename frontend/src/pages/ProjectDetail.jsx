@@ -9,6 +9,7 @@ import TimerButton from '../components/TimerButton.jsx';
 import TagInput from '../components/TagInput.jsx';
 import AssigneePicker from '../components/AssigneePicker.jsx';
 import DependencyPicker from '../components/DependencyPicker.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from '../components/icons.jsx';
 
 const STATUSES = [
@@ -29,7 +30,7 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cfg.badge}`}>{cfg.label}</span>;
 }
 
-function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, subtaskDraft, setSubtaskDraft, projectTasks }) {
+function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete }) {
   const update = async (patch) => {
     await api(`/tasks/${task.id}`, { method: 'PATCH', body: patch });
     onChange();
@@ -120,6 +121,15 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
             </div>
           </div>
           <Comments taskId={task.id} onChange={onChange} />
+          <div className="border-t border-slate-200 pt-3 flex items-center justify-between">
+            <span className="text-xs text-slate-500">Created {new Date(task.created_at).toLocaleDateString()}</span>
+            <button
+              onClick={() => onRequestDelete(task)}
+              className="text-xs text-red-600 hover:text-red-700 hover:underline"
+            >
+              Delete task
+            </button>
+          </div>
         </td></tr>
       )}
     </>
@@ -221,7 +231,7 @@ function SubtaskCreateRow({ projectId, parent, draft, setDraft, onCreate }) {
   );
 }
 
-function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft, projectTasks }) {
+function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete }) {
   const [collapsed, setCollapsed] = useState(false);
   const totalCount = parents.reduce((sum, p) => sum + 1 + (subtasksByParent[p.id]?.length ?? 0), 0);
 
@@ -264,6 +274,7 @@ function StatusGroup({ status, parents, subtasksByParent, users, entries, runnin
                     subtaskDraft={subtaskDraft}
                     setSubtaskDraft={setSubtaskDraft}
                     projectTasks={projectTasks}
+                    onRequestDelete={onRequestDelete}
                   />
                   {subtaskDraft?.parentId === t.id && (
                     <SubtaskCreateRow
@@ -313,6 +324,9 @@ export default function ProjectDetail() {
   const [runningEntry, setRunningEntry] = useState(null);
   // subtaskDraft: { parentId, status, title } when adding a subtask under a parent
   const [subtaskDraft, setSubtaskDraft] = useState(null);
+  const [confirmTaskDelete, setConfirmTaskDelete] = useState(null);     // task to delete
+  const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const load = async () => {
     const [p, t, u, a, running] = await Promise.all([
@@ -362,6 +376,14 @@ export default function ProjectDetail() {
             Owner: {project.owner_name} · Status: {project.status.replace('_', ' ')} {project.deadline && `· Due ${project.deadline.slice(0, 10)}`}
           </div>
         </div>
+        {user?.role === 'admin' && (
+          <button
+            onClick={() => setConfirmProjectDelete(true)}
+            className="text-xs text-red-600 hover:text-red-700 hover:underline"
+          >
+            Delete project
+          </button>
+        )}
       </div>
 
       {/* View toggle */}
@@ -408,6 +430,7 @@ export default function ProjectDetail() {
               subtaskDraft={subtaskDraft}
               setSubtaskDraft={setSubtaskDraft}
               projectTasks={tasks}
+              onRequestDelete={setConfirmTaskDelete}
             />
           ))}
         </div>
@@ -428,6 +451,43 @@ export default function ProjectDetail() {
           {!activity.length && <li className="text-slate-500">No activity yet.</li>}
         </ul>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmTaskDelete}
+        title="Delete this task?"
+        message={confirmTaskDelete
+          ? `"${confirmTaskDelete.title}" will be permanently removed, along with its comments, time entries, and any subtasks. This cannot be undone.`
+          : ''}
+        confirmLabel="Delete task"
+        busy={busy}
+        onCancel={() => setConfirmTaskDelete(null)}
+        onConfirm={async () => {
+          setBusy(true);
+          try {
+            await api(`/tasks/${confirmTaskDelete.id}`, { method: 'DELETE' });
+            setConfirmTaskDelete(null);
+            setOpenComments(null);
+            await load();
+          } finally { setBusy(false); }
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmProjectDelete}
+        title={`Delete "${project.name}"?`}
+        message="This permanently removes the project and every task, comment, checklist item, and time entry inside it. This cannot be undone."
+        confirmLabel="Delete project"
+        busy={busy}
+        onCancel={() => setConfirmProjectDelete(false)}
+        onConfirm={async () => {
+          setBusy(true);
+          try {
+            await api(`/projects/${id}`, { method: 'DELETE' });
+            // Navigate away — project no longer exists.
+            window.location.href = '/projects';
+          } finally { setBusy(false); }
+        }}
+      />
     </div>
   );
 }

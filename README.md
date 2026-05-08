@@ -1,6 +1,6 @@
-# PM — Lightweight Project Management
+# TaskPilot — A Project Management Tool
 
-Internal project/task tracker. React SPA + Vercel serverless functions, JWT auth, Neon (Postgres). Deploys with `git push`.
+Lightweight internal project/task tracker. React SPA + Vercel serverless functions, JWT auth, Neon (Postgres). Deploys with `git push`.
 
 **Live:** https://pm-hr-7gen.vercel.app · **CI:** [GitHub Actions](https://github.com/katvizconde-boop/PM/actions) · 20 backend E2E + 11 frontend unit tests · auto-deployed via Vercel git integration
 

@@ -20,8 +20,11 @@ function OuterRail() {
   ];
   return (
     <div className="w-14 bg-slate-900 text-slate-300 flex flex-col items-center py-3 gap-1.5">
-      <div className="w-9 h-9 rounded-lg bg-indigo-500 text-white flex items-center justify-center font-semibold text-sm mb-2">
-        PM
+      <div
+        className="w-9 h-9 rounded-lg bg-indigo-500 text-white flex items-center justify-center font-bold text-sm mb-2"
+        title="TaskPilot"
+      >
+        TP
       </div>
       {items.map(({ to, label, Icon }) => (
         <NavLink
@@ -64,8 +67,8 @@ function InnerSidebar() {
     <aside className="w-60 bg-slate-50 border-r border-slate-200 flex flex-col">
       <div className="px-3 py-3 border-b border-slate-200">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-          <span className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold">PM</span>
-          <span>Workspace</span>
+          <span className="w-5 h-5 rounded bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold">TP</span>
+          <span>TaskPilot</span>
           <ChevronDownIcon className="w-4 h-4 text-slate-400 ml-auto" />
         </div>
       </div>
