@@ -26,8 +26,17 @@ export default methodHandler({
     }
     const where = filters.length ? `WHERE ${filters.join(' AND ')}` : '';
     const { rows } = await query(
-      `SELECT t.*, u.name AS assignee_name, p.name AS project_name,
-              (SELECT COUNT(*)::int FROM comments c WHERE c.task_id = t.id) AS comments_count
+      `SELECT t.*,
+              u.name AS assignee_name,
+              p.name AS project_name,
+              (SELECT COUNT(*)::int FROM comments c WHERE c.task_id = t.id) AS comments_count,
+              COALESCE((
+                SELECT json_agg(json_build_object('id', u2.id, 'name', u2.name) ORDER BY u2.name)
+                FROM task_assignees ta JOIN users u2 ON u2.id = ta.user_id
+                WHERE ta.task_id = t.id
+              ), '[]'::json) AS co_assignees,
+              (SELECT COUNT(*)::int FROM task_dependencies WHERE blocked_task_id  = t.id) AS blocked_by_count,
+              (SELECT COUNT(*)::int FROM task_dependencies WHERE blocking_task_id = t.id) AS blocks_count
        FROM tasks t
        LEFT JOIN users u ON u.id = t.assignee_id
        JOIN projects p ON p.id = t.project_id

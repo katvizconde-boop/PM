@@ -46,6 +46,7 @@ function OuterRail() {
 
 // Inner light sidebar — shows the same primary nav (in text form) + project list.
 function InnerSidebar() {
+  const { user } = useAuth();
   const [projects, setProjects] = useState([]);
   const [showProjects, setShowProjects] = useState(true);
   const loc = useLocation();
@@ -56,6 +57,8 @@ function InnerSidebar() {
     `flex items-center gap-2 px-2 py-1.5 rounded text-sm ${
       isActive ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700 hover:bg-slate-100'
     }`;
+  const isManager = ['admin', 'manager'].includes(user?.role);
+  const isAdmin   = user?.role === 'admin';
 
   return (
     <aside className="w-60 bg-slate-50 border-r border-slate-200 flex flex-col">
@@ -72,6 +75,12 @@ function InnerSidebar() {
         <NavLink to="/tasks"         className={linkCls}><ListIcon     className="w-4 h-4" /> My Tasks</NavLink>
         <NavLink to="/all-tasks"     className={linkCls}><ListIcon     className="w-4 h-4" /> All Tasks</NavLink>
         <NavLink to="/calendar"      className={linkCls}><CalendarIcon className="w-4 h-4" /> Calendar</NavLink>
+        {isManager && (
+          <NavLink to="/workload"    className={linkCls}><ListIcon     className="w-4 h-4" /> Workload</NavLink>
+        )}
+        {isAdmin && (
+          <NavLink to="/audit"       className={linkCls}><ListIcon     className="w-4 h-4" /> Audit log</NavLink>
+        )}
 
         <div className="pt-3 pb-1 px-2 flex items-center justify-between">
           <button

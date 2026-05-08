@@ -7,6 +7,8 @@ import ChecklistPanel from '../components/ChecklistPanel.jsx';
 import NotesPanel from '../components/NotesPanel.jsx';
 import TimerButton from '../components/TimerButton.jsx';
 import TagInput from '../components/TagInput.jsx';
+import AssigneePicker from '../components/AssigneePicker.jsx';
+import DependencyPicker from '../components/DependencyPicker.jsx';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from '../components/icons.jsx';
 
 const STATUSES = [
@@ -27,13 +29,14 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cfg.badge}`}>{cfg.label}</span>;
 }
 
-function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, onAddSubtask, subtaskDraft, setSubtaskDraft }) {
+function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, subtaskDraft, setSubtaskDraft, projectTasks }) {
   const update = async (patch) => {
     await api(`/tasks/${task.id}`, { method: 'PATCH', body: patch });
     onChange();
   };
   const overdue = task.due_date && task.status !== 'done' && new Date(task.due_date) < new Date();
   const isAddingSub = subtaskDraft?.parentId === task.id;
+  const blockedByOpen = task.blocked_by_count > 0;
   return (
     <>
       <tr className="border-t border-slate-100 hover:bg-slate-50">
@@ -41,6 +44,8 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
           <div className="font-medium flex items-center gap-1.5">
             {depth > 0 && <span className="text-slate-300">↳</span>}
             <span>{task.title}</span>
+            {blockedByOpen && <span className="text-xs text-red-600" title={`${task.blocked_by_count} blocker(s)`}>🚫{task.blocked_by_count}</span>}
+            {task.blocks_count > 0 && <span className="text-xs text-slate-500" title={`blocking ${task.blocks_count}`}>🔗{task.blocks_count}</span>}
           </div>
           {task.description && <div className="text-xs text-slate-500 mt-0.5">{task.description}</div>}
           <div className="mt-1.5 flex items-center gap-3 flex-wrap">
@@ -54,14 +59,29 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
                 + subtask
               </button>
             )}
+            <button
+              onClick={() => onOpenComments(task.id)}
+              className="text-xs text-slate-400 hover:text-indigo-600"
+            >
+              {openComments === task.id ? 'hide details' : 'details'}
+            </button>
           </div>
         </td>
         <td className="px-3 py-2.5">
-          <select className="input py-1 text-xs" value={task.assignee_id ?? ''}
-                  onChange={e => update({ assignee_id: e.target.value ? Number(e.target.value) : null })}>
-            <option value="">Unassigned</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
+          <div className="space-y-1">
+            <select className="input py-1 text-xs" value={task.assignee_id ?? ''}
+                    onChange={e => update({ assignee_id: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">Primary…</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+            <AssigneePicker
+              taskId={task.id}
+              primaryId={task.assignee_id}
+              coAssignees={task.co_assignees ?? []}
+              allUsers={users}
+              onChange={onChange}
+            />
+          </div>
         </td>
         <td className={`px-3 py-2.5 text-xs ${overdue ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
           {task.due_date ? task.due_date.slice(0, 10) : <span className="text-slate-300">—</span>}
@@ -88,7 +108,17 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
         </td>
       </tr>
       {openComments === task.id && (
-        <tr><td colSpan={6} className="bg-slate-50 px-6 py-3 border-t border-slate-100">
+        <tr><td colSpan={6} className="bg-slate-50 px-6 py-3 border-t border-slate-100 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-xs uppercase tracking-wide text-slate-500 mb-1.5">Blocked by</h4>
+              <DependencyPicker taskId={task.id} projectTasks={projectTasks} direction="blocked_by" onChange={onChange} />
+            </div>
+            <div>
+              <h4 className="text-xs uppercase tracking-wide text-slate-500 mb-1.5">Blocks</h4>
+              <DependencyPicker taskId={task.id} projectTasks={projectTasks} direction="blocks" onChange={onChange} />
+            </div>
+          </div>
           <Comments taskId={task.id} onChange={onChange} />
         </td></tr>
       )}
@@ -191,7 +221,7 @@ function SubtaskCreateRow({ projectId, parent, draft, setDraft, onCreate }) {
   );
 }
 
-function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft }) {
+function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft, projectTasks }) {
   const [collapsed, setCollapsed] = useState(false);
   const totalCount = parents.reduce((sum, p) => sum + 1 + (subtasksByParent[p.id]?.length ?? 0), 0);
 
@@ -233,6 +263,7 @@ function StatusGroup({ status, parents, subtasksByParent, users, entries, runnin
                     depth={0}
                     subtaskDraft={subtaskDraft}
                     setSubtaskDraft={setSubtaskDraft}
+                    projectTasks={projectTasks}
                   />
                   {subtaskDraft?.parentId === t.id && (
                     <SubtaskCreateRow
@@ -376,6 +407,7 @@ export default function ProjectDetail() {
               onOpenComments={(taskId) => setOpenComments(openComments === taskId ? null : taskId)}
               subtaskDraft={subtaskDraft}
               setSubtaskDraft={setSubtaskDraft}
+              projectTasks={tasks}
             />
           ))}
         </div>

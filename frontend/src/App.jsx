@@ -10,6 +10,8 @@ import ProjectDetail from './pages/ProjectDetail.jsx';
 import MyTasks from './pages/MyTasks.jsx';
 import Calendar from './pages/Calendar.jsx';
 import AllTasks from './pages/AllTasks.jsx';
+import Audit from './pages/Audit.jsx';
+import Workload from './pages/Workload.jsx';
 
 export default function App() {
   return (
@@ -25,6 +27,8 @@ export default function App() {
             <Route path="tasks" element={<MyTasks />} />
             <Route path="calendar" element={<Calendar />} />
             <Route path="all-tasks" element={<AllTasks />} />
+            <Route path="workload"  element={<Workload  />} />
+            <Route path="audit"     element={<Audit     />} />
           </Route>
         </Routes>
       </BrowserRouter>
