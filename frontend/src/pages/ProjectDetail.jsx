@@ -12,6 +12,7 @@ import DependencyPicker from '../components/DependencyPicker.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import ProjectDashboard from '../components/ProjectDashboard.jsx';
 import MilestonesPanel from '../components/MilestonesPanel.jsx';
+import ProjectSettings from '../components/ProjectSettings.jsx';
 import { taskCode } from '../lib/projectCode.js';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from '../components/icons.jsx';
 
@@ -463,6 +464,7 @@ export default function ProjectDetail() {
   const [groupBy, setGroupBy] = useState('status');               // 'status' | 'milestone'
   const [newListDraft, setNewListDraft] = useState(false);
   const [newListName,  setNewListName]  = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [openComments, setOpenComments] = useState(null);
   const [timeByTask, setTimeByTask] = useState({});
   const [runningEntry, setRunningEntry] = useState(null);
@@ -490,6 +492,15 @@ export default function ProjectDetail() {
     setTimeByTask(Object.fromEntries(allEntries));
   };
   useEffect(() => { load(); }, [id]);
+
+  // If the active tab gets toggled off, snap to the first remaining tab.
+  useEffect(() => {
+    if (!project?.modules) return;
+    if (project.modules[tab] === false) {
+      const first = ['dashboard', 'roadmap', 'tasks', 'notes'].find(k => project.modules[k] !== false);
+      if (first) setTab(first);
+    }
+  }, [project, tab]);
 
   if (!project) return <div className="text-slate-500">Loading…</div>;
 
@@ -533,31 +544,41 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      {/* Top-level project tabs */}
+      {/* Top-level project tabs (gated by project.modules) */}
       <div className="border-b border-slate-200">
-        <div className="flex gap-1">
+        <div className="flex gap-1 items-center">
           {[
             { key: 'dashboard', label: 'Dashboard' },
             { key: 'roadmap',   label: 'Roadmap'   },
             { key: 'tasks',     label: 'Tasks'     },
             { key: 'notes',     label: 'Notes'     },
-          ].map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-3 py-2 text-sm border-b-2 transition-colors ${
-                tab === t.key
-                  ? 'border-indigo-600 text-indigo-700 font-medium'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          ]
+            .filter(t => project.modules?.[t.key] !== false)
+            .map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`px-3 py-2 text-sm border-b-2 transition-colors ${
+                  tab === t.key
+                    ? 'border-indigo-600 text-indigo-700 font-medium'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="ml-1 w-7 h-7 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 flex items-center justify-center"
+            title="Customize project modules"
+            aria-label="Customize project modules"
+          >
+            <PlusIcon className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
-      {tab === 'dashboard' && (
+      {tab === 'dashboard' && project.modules?.dashboard !== false && (
         <ProjectDashboard
           project={project}
           tasks={tasks}
@@ -567,15 +588,15 @@ export default function ProjectDetail() {
         />
       )}
 
-      {tab === 'roadmap' && (
+      {tab === 'roadmap' && project.modules?.roadmap !== false && (
         <MilestonesPanel projectId={id} onChange={load} />
       )}
 
-      {tab === 'notes' && (
+      {tab === 'notes' && project.modules?.notes !== false && (
         <NotesPanel projectId={id} initial={project.notes} updatedAt={project.updated_at} />
       )}
 
-      {tab === 'tasks' && (
+      {tab === 'tasks' && project.modules?.tasks !== false && (
       <>
       <ChecklistPanel projectId={id} />
 
@@ -738,6 +759,15 @@ export default function ProjectDetail() {
             await load();
           } finally { setBusy(false); }
         }}
+      />
+
+      <ProjectSettings
+        open={settingsOpen}
+        projectId={id}
+        initialModules={project.modules ?? {}}
+        canEdit={['admin', 'manager'].includes(user.role)}
+        onClose={() => setSettingsOpen(false)}
+        onSave={(updated) => setProject(updated)}
       />
 
       <ConfirmDialog

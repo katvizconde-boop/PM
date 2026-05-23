@@ -11,6 +11,8 @@ const patchSchema = z.object({
   status: z.enum(['not_started', 'in_progress', 'done']),
   deadline: z.string().date().nullable(),
   notes: z.string().max(50000).nullable(),
+  // Module toggles — known keys + any future tab name.
+  modules: z.record(z.string(), z.boolean()),
 }).partial();
 
 export default methodHandler({
