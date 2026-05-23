@@ -12,6 +12,7 @@ import DependencyPicker from '../components/DependencyPicker.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import ProjectDashboard from '../components/ProjectDashboard.jsx';
 import MilestonesPanel from '../components/MilestonesPanel.jsx';
+import { taskCode } from '../lib/projectCode.js';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from '../components/icons.jsx';
 
 const STATUSES = [
@@ -32,7 +33,7 @@ function StatusBadge({ status }) {
   return <span className={`badge ${cfg.badge}`}>{cfg.label}</span>;
 }
 
-function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete }) {
+function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments, openComments, depth = 0, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete, milestones = [], projectName = '' }) {
   const update = async (patch) => {
     await api(`/tasks/${task.id}`, { method: 'PATCH', body: patch });
     onChange();
@@ -46,6 +47,7 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
         <td className="px-3 py-2.5" style={{ paddingLeft: `${0.75 + depth * 1.5}rem` }}>
           <div className="font-medium flex items-center gap-1.5">
             {depth > 0 && <span className="text-slate-300">↳</span>}
+            <span className="font-mono text-[10px] text-slate-400 mr-1">{taskCode(projectName, task.id)}</span>
             <span>{task.title}</span>
             {blockedByOpen && <span className="text-xs text-red-600" title={`${task.blocked_by_count} blocker(s)`}>🚫{task.blocked_by_count}</span>}
             {task.blocks_count > 0 && <span className="text-xs text-slate-500" title={`blocking ${task.blocks_count}`}>🔗{task.blocks_count}</span>}
@@ -86,6 +88,16 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
             />
           </div>
         </td>
+        <td className="px-3 py-2.5">
+          <select
+            className="input py-1 text-xs"
+            value={task.milestone_id ?? ''}
+            onChange={e => update({ milestone_id: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">No list</option>
+            {milestones.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </td>
         <td className={`px-3 py-2.5 text-xs ${overdue ? 'text-red-600 font-medium' : 'text-slate-600'}`}>
           {task.due_date ? task.due_date.slice(0, 10) : <span className="text-slate-300">—</span>}
         </td>
@@ -111,7 +123,7 @@ function TaskRow({ task, users, entries, runningEntry, onChange, onOpenComments,
         </td>
       </tr>
       {openComments === task.id && (
-        <tr><td colSpan={6} className="bg-slate-50 px-6 py-3 border-t border-slate-100 space-y-4">
+        <tr><td colSpan={7} className="bg-slate-50 px-6 py-3 border-t border-slate-100 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <h4 className="text-xs uppercase tracking-wide text-slate-500 mb-1.5">Blocked by</h4>
@@ -151,7 +163,7 @@ function NewTaskInline({ projectId, status, users, onCreate }) {
   };
   return (
     <tr className="border-t border-slate-100">
-      <td colSpan={6} className="px-3 py-2">
+      <td colSpan={7} className="px-3 py-2">
         <form onSubmit={submit} className="flex items-center gap-2 text-sm">
           <PlusIcon className="w-4 h-4 text-slate-400" />
           <input
@@ -197,6 +209,129 @@ function Comments({ taskId, onChange }) {
   );
 }
 
+// Mirrors StatusGroup but groups by milestone instead of status. The group
+// header is the milestone name (or "No list" bucket for unlinked tasks);
+// inline "+ Add task" pre-fills milestone_id so new tasks land in the right group.
+function MilestoneGroup({ milestone, tasks, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete, milestones, projectName }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const total = tasks.reduce((sum, t) => sum + 1 + (subtasksByParent[t.id]?.length ?? 0), 0);
+
+  const addTask = async (title, defaultStatus = 'todo') => {
+    if (!title.trim()) return;
+    await api('/tasks', {
+      method: 'POST',
+      body: {
+        project_id: Number(projectId),
+        title,
+        status: defaultStatus,
+        priority: 'medium',
+        milestone_id: milestone?.id ?? null,
+      },
+    });
+    onChange();
+  };
+
+  return (
+    <div className="card overflow-hidden">
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 bg-slate-50 hover:bg-slate-100 border-b border-slate-100"
+      >
+        {collapsed ? <ChevronRightIcon className="w-4 h-4 text-slate-500" /> : <ChevronDownIcon className="w-4 h-4 text-slate-500" />}
+        <span className="font-medium text-slate-800">{milestone ? milestone.name : 'No list'}</span>
+        <span className="text-xs text-slate-500">{total}</span>
+        {milestone && (milestone.start_date || milestone.end_date) && (
+          <span className="text-xs text-slate-400 ml-2">
+            {milestone.start_date?.slice(0, 10) ?? '?'} → {milestone.end_date?.slice(0, 10) ?? '?'}
+          </span>
+        )}
+      </button>
+      {!collapsed && (
+        <table className="w-full text-sm">
+          <thead className="text-[11px] uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium">Name</th>
+              <th className="px-3 py-2 text-left font-medium w-40">Assignee</th>
+              <th className="px-3 py-2 text-left font-medium w-32">List</th>
+              <th className="px-3 py-2 text-left font-medium w-28">Due date</th>
+              <th className="px-3 py-2 text-left font-medium w-28">Priority</th>
+              <th className="px-3 py-2 text-left font-medium w-32">Status</th>
+              <th className="px-3 py-2 text-center font-medium w-24">Comments</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map(t => (
+              <Fragment key={t.id}>
+                <TaskRow
+                  task={t}
+                  users={users}
+                  entries={entries[t.id] ?? []}
+                  runningEntry={runningEntry}
+                  onChange={onChange}
+                  openComments={openComments}
+                  onOpenComments={onOpenComments}
+                  depth={0}
+                  subtaskDraft={subtaskDraft}
+                  setSubtaskDraft={setSubtaskDraft}
+                  projectTasks={projectTasks}
+                  onRequestDelete={onRequestDelete}
+                  milestones={milestones}
+                  projectName={projectName}
+                />
+                {(subtasksByParent[t.id] ?? []).map(sub => (
+                  <TaskRow
+                    key={sub.id}
+                    task={sub}
+                    users={users}
+                    entries={entries[sub.id] ?? []}
+                    runningEntry={runningEntry}
+                    onChange={onChange}
+                    openComments={openComments}
+                    onOpenComments={onOpenComments}
+                    depth={1}
+                    subtaskDraft={subtaskDraft}
+                    setSubtaskDraft={setSubtaskDraft}
+                    projectTasks={projectTasks}
+                    onRequestDelete={onRequestDelete}
+                    milestones={milestones}
+                    projectName={projectName}
+                  />
+                ))}
+              </Fragment>
+            ))}
+            <NewTaskInListRow onSubmit={addTask} />
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function NewTaskInListRow({ onSubmit }) {
+  const [title, setTitle] = useState('');
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    await onSubmit(title);
+    setTitle('');
+  };
+  return (
+    <tr className="border-t border-slate-100">
+      <td colSpan={7} className="px-3 py-2">
+        <form onSubmit={submit} className="flex items-center gap-2 text-sm">
+          <PlusIcon className="w-4 h-4 text-slate-400" />
+          <input
+            className="flex-1 border-0 focus:outline-none focus:ring-0 text-sm bg-transparent"
+            placeholder="Add task…"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+          />
+        </form>
+      </td>
+    </tr>
+  );
+}
+
 function SubtaskCreateRow({ projectId, parent, draft, setDraft, onCreate }) {
   const submit = async (e) => {
     e.preventDefault();
@@ -216,7 +351,7 @@ function SubtaskCreateRow({ projectId, parent, draft, setDraft, onCreate }) {
   };
   return (
     <tr className="border-t border-slate-100 bg-slate-50/50">
-      <td colSpan={6} className="px-3 py-2" style={{ paddingLeft: '2.25rem' }}>
+      <td colSpan={7} className="px-3 py-2" style={{ paddingLeft: '2.25rem' }}>
         <form onSubmit={submit} className="flex items-center gap-2 text-sm">
           <span className="text-slate-300">↳</span>
           <input
@@ -233,7 +368,7 @@ function SubtaskCreateRow({ projectId, parent, draft, setDraft, onCreate }) {
   );
 }
 
-function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete }) {
+function StatusGroup({ status, parents, subtasksByParent, users, entries, runningEntry, projectId, onChange, openComments, onOpenComments, subtaskDraft, setSubtaskDraft, projectTasks, onRequestDelete, milestones, projectName }) {
   const [collapsed, setCollapsed] = useState(false);
   const totalCount = parents.reduce((sum, p) => sum + 1 + (subtasksByParent[p.id]?.length ?? 0), 0);
 
@@ -253,6 +388,7 @@ function StatusGroup({ status, parents, subtasksByParent, users, entries, runnin
             <tr>
               <th className="px-3 py-2 text-left font-medium">Name</th>
               <th className="px-3 py-2 text-left font-medium w-40">Assignee</th>
+              <th className="px-3 py-2 text-left font-medium w-32">List</th>
               <th className="px-3 py-2 text-left font-medium w-28">Due date</th>
               <th className="px-3 py-2 text-left font-medium w-28">Priority</th>
               <th className="px-3 py-2 text-left font-medium w-32">Status</th>
@@ -277,6 +413,8 @@ function StatusGroup({ status, parents, subtasksByParent, users, entries, runnin
                     setSubtaskDraft={setSubtaskDraft}
                     projectTasks={projectTasks}
                     onRequestDelete={onRequestDelete}
+                    milestones={milestones}
+                    projectName={projectName}
                   />
                   {subtaskDraft?.parentId === t.id && (
                     <SubtaskCreateRow
@@ -322,6 +460,9 @@ export default function ProjectDetail() {
   const [activity, setActivity] = useState([]);
   const [view, setView]       = useState('list');                // sub-view inside Tasks tab
   const [tab,  setTab]        = useState('dashboard');            // top-level project tab
+  const [groupBy, setGroupBy] = useState('status');               // 'status' | 'milestone'
+  const [newListDraft, setNewListDraft] = useState(false);
+  const [newListName,  setNewListName]  = useState('');
   const [openComments, setOpenComments] = useState(null);
   const [timeByTask, setTimeByTask] = useState({});
   const [runningEntry, setRunningEntry] = useState(null);
@@ -438,24 +579,119 @@ export default function ProjectDetail() {
       <>
       <ChecklistPanel projectId={id} />
 
-      {/* List/Board sub-toggle */}
-      <div className="inline-flex rounded-md border border-slate-200 bg-white text-sm">
-        {[
-          { key: 'list',  label: 'List'  },
-          { key: 'board', label: 'Board' },
-        ].map(v => (
-          <button
-            key={v.key}
-            onClick={() => setView(v.key)}
-            className={`px-3 py-1.5 capitalize ${view === v.key ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-          >
-            {v.label}
-          </button>
-        ))}
+      {/* List/Board sub-toggle + Group-by + Add List */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="inline-flex rounded-md border border-slate-200 bg-white text-sm">
+          {[
+            { key: 'list',  label: 'List'  },
+            { key: 'board', label: 'Board' },
+          ].map(v => (
+            <button
+              key={v.key}
+              onClick={() => setView(v.key)}
+              className={`px-3 py-1.5 capitalize ${view === v.key ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        {view === 'list' && (
+          <>
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <span>Group by:</span>
+              <select
+                className="input py-1 text-xs w-32"
+                value={groupBy}
+                onChange={e => setGroupBy(e.target.value)}
+              >
+                <option value="status">Status</option>
+                <option value="milestone">List (milestone)</option>
+              </select>
+            </div>
+
+            {groupBy === 'milestone' && ['admin', 'manager'].includes(user.role) && (
+              <button
+                onClick={() => setNewListDraft(true)}
+                className="text-sm text-indigo-600 hover:underline inline-flex items-center gap-1"
+              >
+                <PlusIcon className="w-3.5 h-3.5" /> Add List
+              </button>
+            )}
+          </>
+        )}
       </div>
+
+      {newListDraft && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!newListName.trim()) return;
+            await api(`/milestones?project_id=${id}`, { method: 'POST', body: { name: newListName } });
+            setNewListName(''); setNewListDraft(false); await load();
+          }}
+          className="card p-2 flex items-center gap-2"
+        >
+          <PlusIcon className="w-4 h-4 text-slate-400" />
+          <input
+            autoFocus
+            className="flex-1 border-0 focus:outline-none focus:ring-0 text-sm bg-transparent"
+            placeholder="New list name…"
+            value={newListName}
+            onChange={e => setNewListName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') { setNewListDraft(false); setNewListName(''); } }}
+          />
+          <button className="btn-primary text-xs">Add</button>
+        </form>
+      )}
 
       {view === 'board' ? (
         <KanbanBoard tasks={tasks} onChange={load} />
+      ) : groupBy === 'milestone' ? (
+        <div className="space-y-3">
+          {milestones.map(m => (
+            <MilestoneGroup
+              key={m.id}
+              milestone={m}
+              tasks={topLevel.filter(t => t.milestone_id === m.id)}
+              subtasksByParent={subtasksByParent}
+              users={users}
+              entries={timeByTask}
+              runningEntry={runningEntry}
+              projectId={id}
+              onChange={load}
+              openComments={openComments}
+              onOpenComments={(taskId) => setOpenComments(openComments === taskId ? null : taskId)}
+              subtaskDraft={subtaskDraft}
+              setSubtaskDraft={setSubtaskDraft}
+              projectTasks={tasks}
+              onRequestDelete={setConfirmTaskDelete}
+              milestones={milestones}
+              projectName={project.name}
+            />
+          ))}
+          {/* Unlinked tasks bucket */}
+          {topLevel.some(t => !t.milestone_id) && (
+            <MilestoneGroup
+              milestone={null}
+              tasks={topLevel.filter(t => !t.milestone_id)}
+              subtasksByParent={subtasksByParent}
+              users={users}
+              entries={timeByTask}
+              runningEntry={runningEntry}
+              projectId={id}
+              onChange={load}
+              openComments={openComments}
+              onOpenComments={(taskId) => setOpenComments(openComments === taskId ? null : taskId)}
+              subtaskDraft={subtaskDraft}
+              setSubtaskDraft={setSubtaskDraft}
+              projectTasks={tasks}
+              onRequestDelete={setConfirmTaskDelete}
+              milestones={milestones}
+              projectName={project.name}
+            />
+          )}
+        </div>
       ) : (
         <div className="space-y-3">
           {STATUSES.map(s => (
@@ -475,6 +711,8 @@ export default function ProjectDetail() {
               setSubtaskDraft={setSubtaskDraft}
               projectTasks={tasks}
               onRequestDelete={setConfirmTaskDelete}
+              milestones={milestones}
+              projectName={project.name}
             />
           ))}
         </div>
