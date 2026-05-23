@@ -10,6 +10,8 @@ import TagInput from '../components/TagInput.jsx';
 import AssigneePicker from '../components/AssigneePicker.jsx';
 import DependencyPicker from '../components/DependencyPicker.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import ProjectDashboard from '../components/ProjectDashboard.jsx';
+import MilestonesPanel from '../components/MilestonesPanel.jsx';
 import { ChevronDownIcon, ChevronRightIcon, PlusIcon } from '../components/icons.jsx';
 
 const STATUSES = [
@@ -318,10 +320,12 @@ export default function ProjectDetail() {
   const [tasks, setTasks]     = useState([]);
   const [users, setUsers]     = useState([]);
   const [activity, setActivity] = useState([]);
-  const [view, setView]       = useState('list');
+  const [view, setView]       = useState('list');                // sub-view inside Tasks tab
+  const [tab,  setTab]        = useState('dashboard');            // top-level project tab
   const [openComments, setOpenComments] = useState(null);
   const [timeByTask, setTimeByTask] = useState({});
   const [runningEntry, setRunningEntry] = useState(null);
+  const [milestones, setMilestones] = useState([]);
   // subtaskDraft: { parentId, status, title } when adding a subtask under a parent
   const [subtaskDraft, setSubtaskDraft] = useState(null);
   const [confirmTaskDelete, setConfirmTaskDelete] = useState(null);     // task to delete
@@ -329,14 +333,16 @@ export default function ProjectDetail() {
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const [p, t, u, a, running] = await Promise.all([
+    const [p, t, u, a, running, ms] = await Promise.all([
       api(`/projects/${id}`),
       api(`/tasks?project_id=${id}`),
       api('/dashboard/users'),
       api(`/activity?entity_type=project&entity_id=${id}`),
       api('/time?running=1'),
+      api(`/milestones?project_id=${id}`),
     ]);
     setProject(p); setTasks(t); setUsers(u); setActivity(a); setRunningEntry(running);
+    setMilestones(ms);
     const allEntries = await Promise.all(
       t.map(task => api(`/time?task_id=${task.id}`).then(rows => [task.id, rows]))
     );
@@ -386,29 +392,67 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      {/* View toggle */}
+      {/* Top-level project tabs */}
       <div className="border-b border-slate-200">
         <div className="flex gap-1">
           {[
-            { key: 'list',  label: 'List'  },
-            { key: 'board', label: 'Board' },
-          ].map(v => (
+            { key: 'dashboard', label: 'Dashboard' },
+            { key: 'roadmap',   label: 'Roadmap'   },
+            { key: 'tasks',     label: 'Tasks'     },
+            { key: 'notes',     label: 'Notes'     },
+          ].map(t => (
             <button
-              key={v.key}
-              onClick={() => setView(v.key)}
+              key={t.key}
+              onClick={() => setTab(t.key)}
               className={`px-3 py-2 text-sm border-b-2 transition-colors ${
-                view === v.key
+                tab === t.key
                   ? 'border-indigo-600 text-indigo-700 font-medium'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
-              {v.label}
+              {t.label}
             </button>
           ))}
         </div>
       </div>
 
+      {tab === 'dashboard' && (
+        <ProjectDashboard
+          project={project}
+          tasks={tasks}
+          users={users}
+          activity={activity}
+          milestones={milestones}
+        />
+      )}
+
+      {tab === 'roadmap' && (
+        <MilestonesPanel projectId={id} onChange={load} />
+      )}
+
+      {tab === 'notes' && (
+        <NotesPanel projectId={id} initial={project.notes} updatedAt={project.updated_at} />
+      )}
+
+      {tab === 'tasks' && (
+      <>
       <ChecklistPanel projectId={id} />
+
+      {/* List/Board sub-toggle */}
+      <div className="inline-flex rounded-md border border-slate-200 bg-white text-sm">
+        {[
+          { key: 'list',  label: 'List'  },
+          { key: 'board', label: 'Board' },
+        ].map(v => (
+          <button
+            key={v.key}
+            onClick={() => setView(v.key)}
+            className={`px-3 py-1.5 capitalize ${view === v.key ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
 
       {view === 'board' ? (
         <KanbanBoard tasks={tasks} onChange={load} />
@@ -435,22 +479,8 @@ export default function ProjectDetail() {
           ))}
         </div>
       )}
-
-      <NotesPanel projectId={id} initial={project.notes} updatedAt={project.updated_at} />
-
-      <div className="card p-4">
-        <h2 className="font-medium mb-2 text-sm text-slate-700">Recent activity</h2>
-        <ul className="space-y-1 text-sm">
-          {activity.slice(0, 10).map(a => (
-            <li key={a.id} className="text-slate-600">
-              <span className="font-medium text-slate-800">{a.actor_name}</span>
-              {' '}{a.action.replace('_', ' ')} {a.entity_type}
-              <span className="text-xs text-slate-400 ml-2">{new Date(a.created_at).toLocaleString()}</span>
-            </li>
-          ))}
-          {!activity.length && <li className="text-slate-500">No activity yet.</li>}
-        </ul>
-      </div>
+      </>
+      )}
 
       <ConfirmDialog
         open={!!confirmTaskDelete}

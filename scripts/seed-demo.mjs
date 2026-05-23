@@ -112,6 +112,31 @@ async function ensureComment(taskId, authorId, body) {
   console.log(`  + sample comment added on task #${taskId}`);
 }
 
+async function ensureMilestones(projectId, milestones) {
+  const { rows: existing } = await pool.query(
+    'SELECT COUNT(*)::int AS c FROM milestones WHERE project_id = $1', [projectId]
+  );
+  if (existing[0].c > 0) {
+    console.log(`  ~ milestones already populated (${existing[0].c})`);
+    const { rows } = await pool.query(
+      'SELECT id, name FROM milestones WHERE project_id = $1 ORDER BY position', [projectId]
+    );
+    return rows;
+  }
+  const out = [];
+  for (let i = 0; i < milestones.length; i++) {
+    const m = milestones[i];
+    const { rows } = await pool.query(
+      `INSERT INTO milestones (project_id, name, description, start_date, end_date, status, position)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name`,
+      [projectId, m.name, m.description ?? null, m.start_date, m.end_date, m.status ?? 'active', i + 1]
+    );
+    out.push(rows[0]);
+  }
+  console.log(`  + ${milestones.length} milestones added`);
+  return out;
+}
+
 async function ensureTimeEntries(taskId, userId, segments) {
   // Idempotent at the task level: skip if any entry exists on this task.
   // segments: array of [hoursAgo, durationMinutes].
@@ -158,6 +183,24 @@ async function main() {
 
   if (taskIds[1]) {
     await ensureComment(taskIds[1], ids.manager, 'Aim for the v1 layout by Thursday — keep it minimal.');
+  }
+
+  // Milestones spanning a 4-week project arc.
+  const day = (offset) => fmt(new Date(today.getTime() + offset * 864e5));
+  const ms = await ensureMilestones(projectId, [
+    { name: 'Discovery',  description: 'Stakeholder interviews + scope sign-off',  start_date: day(-14), end_date: day(-5),  status: 'completed' },
+    { name: 'Build',      description: 'Implementation + internal QA',             start_date: day(-4),  end_date: day(7),   status: 'active' },
+    { name: 'Client review', description: 'Walkthroughs + revisions',              start_date: day(8),   end_date: day(14),  status: 'active' },
+    { name: 'Handoff',    description: 'Documentation + final delivery',           start_date: day(15),  end_date: day(21),  status: 'active' },
+  ]);
+  // Link the seeded tasks to milestones so the Dashboard shows non-empty progress.
+  if (taskIds.length && ms.length >= 2) {
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2', [ms[0].id, taskIds[0]]); // benchmarks → Discovery
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)',  [ms[1].id, taskIds.slice(1, 3)]); // dashboard, summary → Build
+    if (taskIds[3]) {
+      await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2', [ms[2].id, taskIds[3]]); // schedule call → Client review
+    }
+    console.log(`  + linked tasks to milestones`);
   }
 
   // Sample time on the first two tasks so logging-in users see non-zero totals.
