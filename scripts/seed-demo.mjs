@@ -22,10 +22,23 @@ neonConfig.webSocketConstructor = ws;
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// Realistic-feeling demo team. All same password.
+// Two CSMs (admin), three Analyst Managers (manager), four Analysts (member).
+// Enough variety that the Workload view, AvatarStacks, and All Tasks page all
+// have non-trivial content to show on first login.
 const DEMO_USERS = [
-  { email: 'csm@demo.com',             name: 'Demo CSM',             role: 'admin'   },
-  { email: 'analyst-manager@demo.com', name: 'Demo Analyst Manager', role: 'manager' },
-  { email: 'analyst@demo.com',         name: 'Demo Analyst',         role: 'member'  },
+  // Client Success Managers (admin)
+  { email: 'csm@demo.com',             name: 'Demo CSM',         role: 'admin'   },
+  { email: 'cs.lead@demo.com',         name: 'Maya Chen',        role: 'admin'   },
+  // Analyst Managers
+  { email: 'analyst-manager@demo.com', name: 'Demo Manager',     role: 'manager' },
+  { email: 'ops.manager@demo.com',     name: 'Diego Santos',     role: 'manager' },
+  { email: 'hr.lead@demo.com',         name: 'Priya Patel',      role: 'manager' },
+  // Analysts
+  { email: 'analyst@demo.com',         name: 'Demo Analyst',     role: 'member'  },
+  { email: 'analyst.alex@demo.com',    name: 'Alex Park',        role: 'member'  },
+  { email: 'analyst.maria@demo.com',   name: 'Maria Lopez',      role: 'member'  },
+  { email: 'analyst.sam@demo.com',     name: 'Sam Nguyen',       role: 'member'  },
 ];
 const DEMO_PASSWORD = 'demo12345';
 
@@ -137,6 +150,17 @@ async function ensureMilestones(projectId, milestones) {
   return out;
 }
 
+async function ensureCoAssignees(taskId, userIds) {
+  // task_assignees uses (task_id, user_id) PK → upsert via ON CONFLICT DO NOTHING.
+  for (const uid of userIds) {
+    await pool.query(
+      `INSERT INTO task_assignees (task_id, user_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [taskId, uid]
+    );
+  }
+}
+
 async function ensureTimeEntries(taskId, userId, segments) {
   // Idempotent at the task level: skip if any entry exists on this task.
   // segments: array of [hoursAgo, durationMinutes].
@@ -158,13 +182,19 @@ async function ensureTimeEntries(taskId, userId, segments) {
 async function main() {
   const hash = await bcrypt.hash(DEMO_PASSWORD, 10);
   console.log('Seeding demo users:');
-  const ids = {};
-  for (const u of DEMO_USERS) ids[u.role] = await upsertUser(u, hash);
+  // Key users by email so each project can pick its own owner/manager/analysts.
+  const u = {};
+  for (const user of DEMO_USERS) u[user.email] = await upsertUser(user, hash);
 
-  console.log('\nSeeding demo project:');
-  const projectId = await ensureProject('Q3 Onboarding Sprint', ids.admin);
+  const today = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const day = (offset) => fmt(new Date(today.getTime() + offset * 864e5));
 
-  await ensureChecklist(projectId, [
+  // ── Project 1: Q3 Onboarding Sprint (existing) ──────────────────────────────
+  console.log('\nSeeding project: Q3 Onboarding Sprint');
+  const p1 = await ensureProject('Q3 Onboarding Sprint', u['csm@demo.com']);
+
+  await ensureChecklist(p1, [
     'Kickoff meeting with client',
     'Gather data sources',
     'Draft initial analysis',
@@ -172,45 +202,112 @@ async function main() {
     'Deliver final report',
   ]);
 
-  const today = new Date();
-  const fmt = (d) => d.toISOString().slice(0, 10);
-  const taskIds = await ensureTasks(projectId, ids.member, ids.manager, [
-    { title: 'Pull last-quarter benchmarks', status: 'done',        priority: 'medium', due_date: fmt(new Date(today.getTime() - 3*864e5)) },
-    { title: 'Build dashboard scaffold',     status: 'in_progress', priority: 'high',   due_date: fmt(new Date(today.getTime() + 2*864e5)) },
-    { title: 'Write executive summary',      status: 'todo',        priority: 'high',   due_date: fmt(new Date(today.getTime() + 5*864e5)) },
-    { title: 'Schedule client review call',  status: 'todo',        priority: 'low',    due_date: fmt(new Date(today.getTime() + 7*864e5)) },
+  const p1Tasks = await ensureTasks(p1, u['analyst@demo.com'], u['analyst-manager@demo.com'], [
+    { title: 'Pull last-quarter benchmarks', status: 'done',        priority: 'medium', due_date: day(-3) },
+    { title: 'Build dashboard scaffold',     status: 'in_progress', priority: 'high',   due_date: day(+2) },
+    { title: 'Write executive summary',      status: 'todo',        priority: 'high',   due_date: day(+5) },
+    { title: 'Schedule client review call',  status: 'todo',        priority: 'low',    due_date: day(+7) },
   ]);
 
-  if (taskIds[1]) {
-    await ensureComment(taskIds[1], ids.manager, 'Aim for the v1 layout by Thursday — keep it minimal.');
-  }
+  if (p1Tasks[1]) await ensureComment(p1Tasks[1], u['analyst-manager@demo.com'], 'Aim for the v1 layout by Thursday — keep it minimal.');
 
-  // Milestones spanning a 4-week project arc.
-  const day = (offset) => fmt(new Date(today.getTime() + offset * 864e5));
-  const ms = await ensureMilestones(projectId, [
-    { name: 'Discovery',  description: 'Stakeholder interviews + scope sign-off',  start_date: day(-14), end_date: day(-5),  status: 'completed' },
-    { name: 'Build',      description: 'Implementation + internal QA',             start_date: day(-4),  end_date: day(7),   status: 'active' },
-    { name: 'Client review', description: 'Walkthroughs + revisions',              start_date: day(8),   end_date: day(14),  status: 'active' },
-    { name: 'Handoff',    description: 'Documentation + final delivery',           start_date: day(15),  end_date: day(21),  status: 'active' },
+  const p1Ms = await ensureMilestones(p1, [
+    { name: 'Discovery',     description: 'Stakeholder interviews + scope sign-off', start_date: day(-14), end_date: day(-5),  status: 'completed' },
+    { name: 'Build',         description: 'Implementation + internal QA',           start_date: day(-4),  end_date: day(+7),  status: 'active' },
+    { name: 'Client review', description: 'Walkthroughs + revisions',                start_date: day(+8),  end_date: day(+14), status: 'active' },
+    { name: 'Handoff',       description: 'Documentation + final delivery',          start_date: day(+15), end_date: day(+21), status: 'active' },
   ]);
-  // Link the seeded tasks to milestones so the Dashboard shows non-empty progress.
-  if (taskIds.length && ms.length >= 2) {
-    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2', [ms[0].id, taskIds[0]]); // benchmarks → Discovery
-    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)',  [ms[1].id, taskIds.slice(1, 3)]); // dashboard, summary → Build
-    if (taskIds[3]) {
-      await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2', [ms[2].id, taskIds[3]]); // schedule call → Client review
-    }
-    console.log(`  + linked tasks to milestones`);
+  if (p1Tasks.length && p1Ms.length >= 2) {
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2',          [p1Ms[0].id, p1Tasks[0]]);
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)',     [p1Ms[1].id, p1Tasks.slice(1, 3)]);
+    if (p1Tasks[3]) await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2', [p1Ms[2].id, p1Tasks[3]]);
   }
+  if (p1Tasks[0]) await ensureTimeEntries(p1Tasks[0], u['analyst@demo.com'], [[26, 95], [4, 45]]);
+  if (p1Tasks[1]) await ensureTimeEntries(p1Tasks[1], u['analyst@demo.com'], [[3, 120]]);
+  // Co-assignee: dashboard scaffold gets Alex as a collaborator
+  if (p1Tasks[1]) await ensureCoAssignees(p1Tasks[1], [u['analyst.alex@demo.com']]);
 
-  // Sample time on the first two tasks so logging-in users see non-zero totals.
-  if (taskIds[0]) await ensureTimeEntries(taskIds[0], ids.member, [[26, 95], [4, 45]]);
-  if (taskIds[1]) await ensureTimeEntries(taskIds[1], ids.member, [[3, 120]]);
+  // ── Project 2: Internal Process Audit ──────────────────────────────────────
+  console.log('\nSeeding project: Internal Process Audit');
+  const p2 = await ensureProject('Internal Process Audit', u['cs.lead@demo.com']);
+  await ensureChecklist(p2, [
+    'Define audit scope',
+    'Pull workflow data from last 6 months',
+    'Interview team leads',
+    'Identify bottlenecks',
+    'Draft recommendations',
+    'Present findings',
+  ]);
+  const p2Tasks = await ensureTasks(p2, u['analyst.maria@demo.com'], u['ops.manager@demo.com'], [
+    { title: 'Audit scope document',        status: 'done',        priority: 'high',   due_date: day(-10) },
+    { title: 'Workflow data extraction',    status: 'in_progress', priority: 'high',   due_date: day(+1)  },
+    { title: 'Team lead interviews',        status: 'in_progress', priority: 'medium', due_date: day(+6)  },
+    { title: 'Bottleneck analysis report',  status: 'todo',        priority: 'urgent', due_date: day(+10) },
+    { title: 'Recommendations deck',        status: 'todo',        priority: 'high',   due_date: day(+18) },
+  ]);
+  if (p2Tasks[1]) await ensureComment(p2Tasks[1], u['ops.manager@demo.com'], 'Need this by EOW so we can hand it to the analysis pod.');
+  if (p2Tasks[3]) await ensureComment(p2Tasks[3], u['cs.lead@demo.com'],     'Please escalate any single-point-of-failure findings up to me directly.');
 
-  console.log('\nDone. Login with:');
-  console.log(`  csm@demo.com             / ${DEMO_PASSWORD}   (Client Success Manager)`);
-  console.log(`  analyst-manager@demo.com / ${DEMO_PASSWORD}   (Analyst Manager)`);
-  console.log(`  analyst@demo.com         / ${DEMO_PASSWORD}   (Analyst)`);
+  const p2Ms = await ensureMilestones(p2, [
+    { name: 'Scoping',  description: 'Goals + access set up',            start_date: day(-14), end_date: day(-7),  status: 'completed' },
+    { name: 'Research', description: 'Data + interviews',                 start_date: day(-6),  end_date: day(+8),  status: 'active' },
+    { name: 'Analysis', description: 'Synthesis + recommendations deck',  start_date: day(+9),  end_date: day(+20), status: 'active' },
+  ]);
+  if (p2Tasks.length && p2Ms.length >= 2) {
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = $2',      [p2Ms[0].id, p2Tasks[0]]);
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)', [p2Ms[1].id, p2Tasks.slice(1, 3)]);
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)', [p2Ms[2].id, p2Tasks.slice(3, 5)]);
+  }
+  if (p2Tasks[1]) await ensureTimeEntries(p2Tasks[1], u['analyst.maria@demo.com'], [[20, 180], [5, 90]]);
+  if (p2Tasks[2]) await ensureTimeEntries(p2Tasks[2], u['analyst.sam@demo.com'],   [[24, 60], [2, 75]]);
+  // Co-assignees so Workload counts both primary + collaborator load
+  if (p2Tasks[2]) await ensureCoAssignees(p2Tasks[2], [u['analyst.sam@demo.com'], u['analyst.alex@demo.com']]);
+  if (p2Tasks[3]) await ensureCoAssignees(p2Tasks[3], [u['analyst.sam@demo.com']]);
+
+  // ── Project 3: Q4 Recruitment Drive ────────────────────────────────────────
+  console.log('\nSeeding project: Q4 Recruitment Drive');
+  const p3 = await ensureProject('Q4 Recruitment Drive', u['hr.lead@demo.com']);
+  await ensureChecklist(p3, [
+    'Finalise role briefs',
+    'Open positions on careers page',
+    'Source candidates',
+    'First-round interviews',
+    'Make offers',
+  ]);
+  const p3Tasks = await ensureTasks(p3, u['analyst.alex@demo.com'], u['hr.lead@demo.com'], [
+    { title: 'Draft 4 role descriptions',     status: 'done',        priority: 'medium', due_date: day(-8)  },
+    { title: 'Publish openings on LinkedIn',  status: 'done',        priority: 'medium', due_date: day(-4)  },
+    { title: 'Screen incoming applications',  status: 'in_progress', priority: 'high',   due_date: day(+3)  },
+    { title: 'Schedule first-round interviews', status: 'todo',      priority: 'high',   due_date: day(+8)  },
+    { title: 'Coordinate panel availability', status: 'todo',        priority: 'medium', due_date: day(+12) },
+  ]);
+  if (p3Tasks[2]) await ensureComment(p3Tasks[2], u['hr.lead@demo.com'], 'Filter aggressively on the data-analysis seniority bar — we have plenty of pipeline.');
+
+  const p3Ms = await ensureMilestones(p3, [
+    { name: 'Sourcing',  description: 'Roles live + candidates flowing',  start_date: day(-10), end_date: day(+5),  status: 'active' },
+    { name: 'Interviews',description: 'Screening + first round',          start_date: day(+6),  end_date: day(+18), status: 'active' },
+  ]);
+  if (p3Tasks.length && p3Ms.length >= 1) {
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)', [p3Ms[0].id, p3Tasks.slice(0, 3)]);
+    await pool.query('UPDATE tasks SET milestone_id = $1 WHERE id = ANY($2)', [p3Ms[1].id, p3Tasks.slice(3, 5)]);
+  }
+  if (p3Tasks[2]) await ensureTimeEntries(p3Tasks[2], u['analyst.alex@demo.com'],  [[18, 105], [3, 60]]);
+  if (p3Tasks[2]) await ensureCoAssignees(p3Tasks[2], [u['analyst.maria@demo.com']]);
+  if (p3Tasks[3]) await ensureCoAssignees(p3Tasks[3], [u['analyst@demo.com']]);
+
+  console.log('\nDone. Login with any of these — all use password "demo12345":\n');
+  console.log('  Client Success Managers (admin):');
+  console.log('    csm@demo.com             — Demo CSM');
+  console.log('    cs.lead@demo.com         — Maya Chen');
+  console.log('\n  Analyst Managers (manager):');
+  console.log('    analyst-manager@demo.com — Demo Manager');
+  console.log('    ops.manager@demo.com     — Diego Santos');
+  console.log('    hr.lead@demo.com         — Priya Patel');
+  console.log('\n  Analysts (member):');
+  console.log('    analyst@demo.com         — Demo Analyst');
+  console.log('    analyst.alex@demo.com    — Alex Park');
+  console.log('    analyst.maria@demo.com   — Maria Lopez');
+  console.log('    analyst.sam@demo.com     — Sam Nguyen');
 }
 
 try { await main(); } finally { await pool.end(); }
